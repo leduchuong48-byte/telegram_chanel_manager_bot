@@ -1,0 +1,443 @@
+{% extends "base.html" %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@yaireo/tagify/dist/tagify.css">
+<style>
+    .tags-layout {
+        display: grid;
+        grid-template-columns: 260px 1fr;
+        gap: 18px;
+    }
+
+    .panel {
+        background: rgba(12, 20, 30, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        padding: 18px;
+        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.4);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 70vh;
+    }
+
+    .panel-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    .group-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        overflow-y: auto;
+        padding-right: 4px;
+    }
+
+    .group-item {
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text);
+        font-size: 13px;
+        cursor: pointer;
+        transition: background 0.2s ease, transform 0.2s ease;
+    }
+
+    .group-item.active {
+        background: rgba(10, 132, 255, 0.18);
+        border-color: rgba(10, 132, 255, 0.4);
+    }
+
+    .group-item:hover {
+        background: rgba(255, 255, 255, 0.08);
+        transform: translateX(2px);
+    }
+
+    .group-create {
+        margin-top: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .group-create input {
+        background: rgba(8, 14, 22, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 10px 12px;
+        color: var(--text);
+        font-size: 13px;
+        outline: none;
+    }
+
+    .editor-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .group-name-input {
+        font-size: 18px;
+        font-weight: 600;
+        background: transparent;
+        border: none;
+        color: var(--text);
+        outline: none;
+        padding: 0;
+        min-width: 220px;
+    }
+
+    .editor-sub {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 4px;
+    }
+
+    .editor-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .tagify {
+        background: rgba(8, 14, 22, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        padding: 12px;
+        min-height: 360px;
+    }
+
+    .tagify__tag {
+        margin: 6px 6px 0 0;
+    }
+
+    .tagify__input {
+        color: var(--text);
+        font-size: 13px;
+        font-family: "JetBrains Mono", "Fira Code", monospace;
+    }
+
+    .hint {
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: rgba(12, 20, 30, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: var(--text);
+        padding: 12px 18px;
+        border-radius: 12px;
+        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.45);
+        opacity: 0;
+        transform: translateY(8px);
+        transition: all 0.2s ease;
+        pointer-events: none;
+    }
+
+    .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    .btn-danger {
+        color: #ff8b8b;
+        border: 1px solid rgba(255, 59, 48, 0.3);
+        background: rgba(255, 59, 48, 0.12);
+    }
+
+    .btn-danger:hover {
+        background: rgba(255, 59, 48, 0.2);
+    }
+
+    @media (max-width: 960px) {
+        .tags-layout {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="tags-layout">
+    <aside class="panel">
+        <div class="panel-header">
+            <span>标签组列表</span>
+            <button class="btn" id="refreshBtn">刷新</button>
+        </div>
+        <div class="group-list" id="groupList"></div>
+        <div class="group-create">
+            <input id="newGroupName" type="text" placeholder="新组名称">
+            <button class="btn btn-primary" id="createGroupBtn">新建组</button>
+        </div>
+    </aside>
+    <section class="panel">
+        <div class="editor-header">
+            <div>
+                <input id="groupNameInput" class="group-name-input" placeholder="未选择组" value="" />
+                <div class="editor-sub" id="currentGroupSub">请选择或新建标签组</div>
+            </div>
+            <div class="editor-actions">
+                <button class="btn btn-primary" id="saveGroupBtn">保存</button>
+                <button class="btn btn-danger" id="deleteGroupBtn">删除</button>
+            </div>
+        </div>
+        <input id="tagsInput" placeholder="输入标签后回车">
+        <div class="hint">支持 #tag 或 tag，保存时会自动去重并转为小写。</div>
+    </section>
+</div>
+
+<div class="toast" id="toast"></div>
+{% endblock %}
+
+{% block extra_script %}
+<script src="https://cdn.jsdelivr.net/npm/@yaireo/tagify/dist/tagify.min.js"></script>
+<script>
+    const TOKEN_KEY = 'token';
+    let groups = [];
+    let currentGroupName = '';
+    let originalGroupName = '';
+    let isNewGroup = false;
+
+    const groupList = document.getElementById('groupList');
+    const groupNameInput = document.getElementById('groupNameInput');
+    const currentGroupSub = document.getElementById('currentGroupSub');
+    const toast = document.getElementById('toast');
+
+    const tagify = new Tagify(document.getElementById('tagsInput'), {
+        editTags: 1,
+        delimiters: /[,\n]+/,
+        maxTags: 5000,
+        dropdown: { enabled: 0 }
+    });
+
+    function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2400);
+    }
+
+    function getToken() {
+        return localStorage.getItem(TOKEN_KEY);
+    }
+
+    function redirectToLogin() {
+        localStorage.removeItem(TOKEN_KEY);
+        window.location.href = '/login';
+    }
+
+    function normalizeTag(raw) {
+        return String(raw || '').trim().replace(/^#+/, '').toLowerCase();
+    }
+
+    function getTagValues() {
+        const seen = new Set();
+        const tags = [];
+        tagify.value.forEach((item) => {
+            const cleaned = normalizeTag(item.value);
+            if (!cleaned || seen.has(cleaned)) return;
+            seen.add(cleaned);
+            tags.push(cleaned);
+        });
+        return tags;
+    }
+
+    function updateSubTitle() {
+        currentGroupSub.textContent = currentGroupName
+            ? `共 ${tagify.value.length} 个标签`
+            : '请选择或新建标签组';
+    }
+
+    function renderGroups() {
+        groupList.innerHTML = '';
+        if (!groups.length) {
+            const empty = document.createElement('div');
+            empty.style.color = 'var(--muted)';
+            empty.style.fontSize = '12px';
+            empty.textContent = '暂无标签组';
+            groupList.appendChild(empty);
+            return;
+        }
+        groups.forEach((group) => {
+            const item = document.createElement('div');
+            item.className = 'group-item' + (originalGroupName === group.name ? ' active' : '');
+            item.textContent = group.name;
+            item.onclick = () => selectGroup(group.name);
+            groupList.appendChild(item);
+        });
+    }
+
+    function selectGroup(name) {
+        const group = groups.find((item) => item.name === name) || { name, tags: [] };
+        currentGroupName = group.name;
+        originalGroupName = group.name;
+        isNewGroup = false;
+        groupNameInput.value = group.name;
+        tagify.removeAllTags();
+        tagify.addTags(group.tags || []);
+        updateSubTitle();
+        renderGroups();
+    }
+
+    async function loadGroups() {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+        const resp = await fetch('/api/tags/groups', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        if (!resp.ok) {
+            showToast('加载标签组失败');
+            return;
+        }
+        groups = await resp.json();
+        renderGroups();
+        if (originalGroupName) {
+            const stillExists = groups.find((item) => item.name === originalGroupName);
+            if (stillExists) {
+                selectGroup(originalGroupName);
+                return;
+            }
+        }
+        if (groups.length) {
+            selectGroup(groups[0].name);
+        } else {
+            currentGroupName = '';
+            originalGroupName = '';
+            isNewGroup = false;
+            groupNameInput.value = '';
+            tagify.removeAllTags();
+            updateSubTitle();
+        }
+    }
+
+    async function saveGroup() {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+        const newName = groupNameInput.value.trim();
+        if (!newName) {
+            showToast('请输入标签组名称');
+            return;
+        }
+        const tags = getTagValues();
+        if (!isNewGroup && originalGroupName && newName !== originalGroupName) {
+            const exists = groups.find((item) => item.name === newName);
+            if (exists && !confirm(`标签组 ${newName} 已存在，是否覆盖？`)) {
+                return;
+            }
+        }
+        const resp = await fetch('/api/tags/groups', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name: newName, tags })
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        if (!resp.ok) {
+            const payload = await resp.json().catch(() => ({}));
+            showToast(payload.detail || '保存失败');
+            return;
+        }
+        if (!isNewGroup && originalGroupName && newName !== originalGroupName) {
+            await fetch(`/api/tags/groups/${encodeURIComponent(originalGroupName)}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+        }
+        showToast('标签组已保存');
+        originalGroupName = newName;
+        currentGroupName = newName;
+        isNewGroup = false;
+        await loadGroups();
+    }
+
+    async function deleteGroup() {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+        if (!originalGroupName) {
+            groupNameInput.value = '';
+            tagify.removeAllTags();
+            currentGroupName = '';
+            isNewGroup = false;
+            updateSubTitle();
+            return;
+        }
+        if (!confirm(`确认删除标签组 ${originalGroupName} ?`)) {
+            return;
+        }
+        const resp = await fetch(`/api/tags/groups/${encodeURIComponent(originalGroupName)}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        if (!resp.ok) {
+            const payload = await resp.json().catch(() => ({}));
+            showToast(payload.detail || '删除失败');
+            return;
+        }
+        showToast('标签组已删除');
+        originalGroupName = '';
+        currentGroupName = '';
+        isNewGroup = false;
+        await loadGroups();
+    }
+
+    document.getElementById('saveGroupBtn').addEventListener('click', saveGroup);
+    document.getElementById('deleteGroupBtn').addEventListener('click', deleteGroup);
+    document.getElementById('refreshBtn').addEventListener('click', loadGroups);
+    document.getElementById('createGroupBtn').addEventListener('click', () => {
+        const nameInput = document.getElementById('newGroupName');
+        const name = nameInput.value.trim();
+        if (!name) {
+            showToast('请输入标签组名称');
+            return;
+        }
+        currentGroupName = name;
+        originalGroupName = '';
+        isNewGroup = true;
+        groupNameInput.value = name;
+        nameInput.value = '';
+        tagify.removeAllTags();
+        updateSubTitle();
+        renderGroups();
+    });
+
+    tagify.on('change', updateSubTitle);
+
+    loadGroups();
+</script>
+{% endblock %}

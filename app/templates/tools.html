@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .tools-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 18px;
+    }
+
+    .tool-card {
+        background: rgba(12, 20, 30, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        padding: 20px;
+        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.4);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .card-title {
+        font-size: 16px;
+        font-weight: 600;
+    }
+
+    .card-desc {
+        font-size: 12px;
+        color: var(--muted);
+        line-height: 1.5;
+    }
+
+    .btn-danger {
+        color: #ff8b8b;
+        border: 1px solid rgba(255, 59, 48, 0.3);
+        background: rgba(255, 59, 48, 0.12);
+    }
+
+    .btn-danger:hover {
+        background: rgba(255, 59, 48, 0.2);
+    }
+
+    .toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: rgba(12, 20, 30, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: var(--text);
+        padding: 12px 18px;
+        border-radius: 12px;
+        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.45);
+        opacity: 0;
+        transform: translateY(8px);
+        transition: all 0.2s ease;
+        pointer-events: none;
+    }
+
+    .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+    }
+</style>
+
+<div class="tools-grid">
+    <div class="tool-card">
+        <div class="card-title">修复标签计数</div>
+        <div class="card-desc">同步补标签数量到目标群组（/tag_count）。将使用 Bot 设置中的 tag_count。</div>
+        <button class="btn btn-primary" id="fixTagCountBtn">🏷️ 立即执行</button>
+    </div>
+
+    <div class="tool-card">
+        <div class="card-title">重载标签缓存</div>
+        <div class="card-desc">触发标签更新流程（/tag_update），重新清理并生成标签目录。</div>
+        <button class="btn" id="reloadTagsBtn">🔄 执行标签更新</button>
+    </div>
+
+    <div class="tool-card">
+        <div class="card-title">重置系统状态</div>
+        <div class="card-desc">停止当前正在运行的标签相关任务（/tag_stop）。</div>
+        <button class="btn btn-danger" id="reloadSystemBtn">♻️ 重置系统</button>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+    const TOKEN_KEY = 'token';
+    const toast = document.getElementById('toast');
+
+    function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2400);
+    }
+
+    function getToken() {
+        return localStorage.getItem(TOKEN_KEY);
+    }
+
+    function redirectToLogin() {
+        localStorage.removeItem(TOKEN_KEY);
+        window.location.href = '/login';
+    }
+
+    async function callTool(endpoint, confirmText, successText) {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+        if (confirmText && !confirm(confirmText)) {
+            return;
+        }
+        const resp = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            showToast(data.detail || '执行失败');
+            return;
+        }
+        showToast(successText || data.message || '已执行');
+    }
+
+    document.getElementById('fixTagCountBtn').addEventListener('click', () => {
+        callTool('/api/tools/fix_tag_count', '确认同步补标签数量？', '已发送补标签数量设置');
+    });
+    document.getElementById('reloadTagsBtn').addEventListener('click', () => {
+        callTool('/api/tools/reload_tags', '确认执行标签更新？', '已发送标签更新指令');
+    });
+    document.getElementById('reloadSystemBtn').addEventListener('click', () => {
+        callTool('/api/tools/reload_system', '确认重置系统状态？', '已发送系统重置指令');
+    });
+</script>
+{% endblock %}

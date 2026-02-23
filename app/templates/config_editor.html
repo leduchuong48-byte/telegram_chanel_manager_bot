@@ -1,0 +1,473 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    @import url('https://cdn.jsdelivr.net/npm/jsoneditor@9.10.0/dist/jsoneditor.min.css');
+
+    .config-shell {
+        background: rgba(12, 20, 30, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 22px;
+        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.45);
+        display: flex;
+        flex-direction: column;
+        min-height: 70vh;
+        overflow: hidden;
+    }
+
+    .config-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 20px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(10, 16, 24, 0.6);
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .toolbar-title {
+        font-size: 16px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .toolbar-title span {
+        width: 28px;
+        height: 28px;
+        border-radius: 10px;
+        display: grid;
+        place-items: center;
+        background: rgba(10, 132, 255, 0.16);
+        color: var(--accent);
+        font-size: 14px;
+    }
+
+    .toolbar-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .toolbar-user {
+        font-size: 13px;
+        color: var(--muted);
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.06);
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .btn-danger {
+        color: #ff8b8b;
+        border: 1px solid rgba(255, 59, 48, 0.3);
+        background: rgba(255, 59, 48, 0.12);
+    }
+
+    .btn-danger:hover {
+        background: rgba(255, 59, 48, 0.2);
+    }
+
+    .editor-wrapper {
+        flex: 1;
+        background: rgba(16, 26, 38, 0.75);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        display: flex;
+        flex-direction: column;
+    }
+
+    #jsoneditor {
+        flex: 1;
+    }
+
+    .jsoneditor {
+        font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace !important;
+        background-color: rgba(12, 20, 30, 0.75) !important;
+        color: var(--text) !important;
+    }
+
+    .jsoneditor-menu {
+        background-color: rgba(10, 16, 24, 0.92) !important;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    }
+
+    .jsoneditor-menu a {
+        color: var(--text) !important;
+    }
+
+    .jsoneditor-tree {
+        background-color: rgba(12, 20, 30, 0.75) !important;
+    }
+
+    .jsoneditor-tree .jsoneditor-field,
+    .jsoneditor-tree .jsoneditor-value {
+        color: var(--text) !important;
+    }
+
+    .jsoneditor-tree .jsoneditor-string {
+        color: #7dd3fc !important;
+    }
+
+    .jsoneditor-tree .jsoneditor-number {
+        color: #facc15 !important;
+    }
+
+    .jsoneditor-tree .jsoneditor-boolean {
+        color: #60a5fa !important;
+    }
+
+    .jsoneditor-tree .jsoneditor-null {
+        color: #93c5fd !important;
+    }
+
+    .jsoneditor-tree .jsoneditor-button {
+        color: var(--accent) !important;
+    }
+
+    .jsoneditor-search {
+        background: rgba(10, 16, 24, 0.85) !important;
+    }
+
+    .jsoneditor-poweredBy {
+        display: none;
+    }
+
+    .toast-container {
+        position: fixed;
+        top: 24px;
+        right: 24px;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        pointer-events: none;
+    }
+
+    .toast {
+        padding: 14px 18px;
+        background: rgba(12, 20, 30, 0.92);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 14px;
+        color: var(--text);
+        font-size: 13px;
+        min-width: 280px;
+        box-shadow: 0 10px 26px rgba(0, 0, 0, 0.4);
+        animation: slideIn 0.3s ease;
+        pointer-events: all;
+    }
+
+    .toast.success {
+        border-left: 4px solid #34d399;
+    }
+
+    .toast.error {
+        border-left: 4px solid #fb7185;
+    }
+
+    .toast.info {
+        border-left: 4px solid #60a5fa;
+    }
+
+    .toast.removing {
+        animation: slideOut 0.3s ease forwards;
+    }
+
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(4, 8, 12, 0.55);
+        z-index: 10000;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modal.show {
+        display: flex;
+    }
+
+    .modal-content {
+        background: rgba(14, 22, 32, 0.95);
+        backdrop-filter: blur(14px);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 18px;
+        padding: 28px;
+        max-width: 420px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+    }
+
+    .modal-title {
+        font-size: 17px;
+        font-weight: 600;
+        margin-bottom: 10px;
+    }
+
+    .modal-message {
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 22px;
+    }
+
+    .modal-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+    }
+
+    @keyframes slideIn {
+        from {
+            transform: translateX(320px);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+
+    @keyframes slideOut {
+        from {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to {
+            transform: translateX(320px);
+            opacity: 0;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .toast {
+            min-width: calc(100vw - 48px);
+            max-width: calc(100vw - 48px);
+        }
+    }
+</style>
+
+<div class="config-shell">
+    <div class="config-toolbar">
+        <div class="toolbar-title">
+            <span>⚙</span>
+            System Config
+        </div>
+        <div class="toolbar-actions">
+            <div class="toolbar-user" id="userDisplay"></div>
+            <button class="btn btn-primary" id="saveBtn">保存</button>
+            <button class="btn" id="resetBtn">重置</button>
+            <button class="btn" id="reloadBtn">热重载</button>
+            <button class="btn btn-danger" id="logoutBtn">退出</button>
+        </div>
+    </div>
+    <div class="editor-wrapper">
+        <div id="jsoneditor"></div>
+    </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<div class="modal" id="confirmModal">
+    <div class="modal-content">
+        <div class="modal-title" id="confirmTitle">确认操作</div>
+        <div class="modal-message" id="confirmMessage"></div>
+        <div class="modal-actions">
+            <button class="btn" id="confirmCancel">取消</button>
+            <button class="btn btn-primary" id="confirmOk">确认</button>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsoneditor@9.10.0/dist/jsoneditor.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+<script>
+    const API_BASE = '/api';
+    const TOKEN_KEY = 'token';
+    const USERNAME_KEY = 'username';
+
+    const editor = new JSONEditor(document.getElementById('jsoneditor'), {
+        mode: 'tree',
+        modes: ['tree', 'code'],
+        mainMenuBar: true,
+        navigationBar: true,
+        statusBar: false,
+        onChangeJSON: (json) => {
+            currentConfig = json;
+        }
+    });
+
+    let currentConfig = {};
+    let originalConfig = {};
+
+    axios.interceptors.response.use(
+        response => response,
+        error => {
+            if (error.response?.status === 401) {
+                logout();
+            }
+            return Promise.reject(error);
+        }
+    );
+
+    window.addEventListener('load', async () => {
+        const token = localStorage.getItem(TOKEN_KEY);
+        if (!token) {
+            window.location.href = '/login';
+            return;
+        }
+
+        const username = localStorage.getItem(USERNAME_KEY);
+        if (username) {
+            document.getElementById('userDisplay').textContent = `👤 ${username}`;
+        }
+
+        await loadConfig();
+    });
+
+    async function loadConfig() {
+        try {
+            const token = localStorage.getItem(TOKEN_KEY);
+            const response = await axios.get(`${API_BASE}/config`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            originalConfig = JSON.parse(JSON.stringify(response.data.data));
+            currentConfig = response.data.data;
+            editor.set(currentConfig);
+            showToast('配置已加载', 'success');
+        } catch (error) {
+            showToast('加载配置失败: ' + (error.response?.data?.detail || error.message), 'error');
+        }
+    }
+
+    document.getElementById('saveBtn').addEventListener('click', () => {
+        showConfirm(
+            '保存配置',
+            '确定要保存这些更改吗？系统将创建备份文件。',
+            saveConfigToServer
+        );
+    });
+
+    async function saveConfigToServer() {
+        const token = localStorage.getItem(TOKEN_KEY);
+        const saveBtn = document.getElementById('saveBtn');
+        saveBtn.disabled = true;
+
+        let nextConfig = null;
+        try {
+            nextConfig = editor.get();
+        } catch (error) {
+            showToast('JSON 校验失败: ' + error.message, 'error');
+            saveBtn.disabled = false;
+            return;
+        }
+
+        try {
+            await axios.put(`${API_BASE}/config`, {
+                data: nextConfig
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            originalConfig = JSON.parse(JSON.stringify(nextConfig));
+            currentConfig = JSON.parse(JSON.stringify(nextConfig));
+            showToast('配置已保存', 'success');
+        } catch (error) {
+            showToast('保存失败: ' + (error.response?.data?.detail || error.message), 'error');
+        } finally {
+            saveBtn.disabled = false;
+        }
+    }
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+        editor.set(originalConfig);
+        currentConfig = JSON.parse(JSON.stringify(originalConfig));
+        showToast('已重置到上次保存的配置', 'info');
+    });
+
+    document.getElementById('reloadBtn').addEventListener('click', () => {
+        showConfirm(
+            '热重载',
+            '确定要从磁盘重新加载配置吗？',
+            reloadConfigFromDisk
+        );
+    });
+
+    async function reloadConfigFromDisk() {
+        const token = localStorage.getItem(TOKEN_KEY);
+        const reloadBtn = document.getElementById('reloadBtn');
+        reloadBtn.disabled = true;
+
+        try {
+            await axios.post(`${API_BASE}/config/reload`, {}, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+
+            await loadConfig();
+            showToast('系统已刷新', 'success');
+        } catch (error) {
+            showToast('重载失败: ' + (error.response?.data?.detail || error.message), 'error');
+        } finally {
+            reloadBtn.disabled = false;
+        }
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+        logout();
+    });
+
+    function logout() {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USERNAME_KEY);
+        window.location.href = '/login';
+    }
+
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        toast.textContent = message;
+
+        container.appendChild(toast);
+
+        setTimeout(() => {
+            toast.classList.add('removing');
+            setTimeout(() => {
+                toast.remove();
+            }, 300);
+        }, 4000);
+    }
+
+    let confirmCallback = null;
+
+    function showConfirm(title, message, callback) {
+        document.getElementById('confirmTitle').textContent = title;
+        document.getElementById('confirmMessage').textContent = message;
+        confirmCallback = callback;
+        document.getElementById('confirmModal').classList.add('show');
+    }
+
+    document.getElementById('confirmOk').addEventListener('click', () => {
+        document.getElementById('confirmModal').classList.remove('show');
+        if (confirmCallback) {
+            confirmCallback();
+        }
+    });
+
+    document.getElementById('confirmCancel').addEventListener('click', () => {
+        document.getElementById('confirmModal').classList.remove('show');
+        confirmCallback = null;
+    });
+</script>
+{% endblock %}

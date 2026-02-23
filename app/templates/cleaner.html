@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .cleaner-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 18px;
+    }
+
+    .cleaner-card {
+        background: rgba(12, 20, 30, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        padding: 20px;
+        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.4);
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .card-title {
+        font-size: 16px;
+        font-weight: 600;
+    }
+
+    .form-field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .form-field label {
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .form-field input {
+        background: rgba(8, 14, 22, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 10px 12px;
+        color: var(--text);
+        font-size: 13px;
+        outline: none;
+    }
+
+    .type-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
+        gap: 10px;
+    }
+
+    .type-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(8, 14, 22, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 10px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        color: var(--text);
+    }
+
+    .btn-danger {
+        color: #ff8b8b;
+        border: 1px solid rgba(255, 59, 48, 0.3);
+        background: rgba(255, 59, 48, 0.12);
+    }
+
+    .btn-danger:hover {
+        background: rgba(255, 59, 48, 0.2);
+    }
+
+    .toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: rgba(12, 20, 30, 0.92);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: var(--text);
+        padding: 12px 18px;
+        border-radius: 12px;
+        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.45);
+        opacity: 0;
+        transform: translateY(8px);
+        transition: all 0.2s ease;
+        pointer-events: none;
+    }
+
+    .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+    }
+</style>
+
+<div class="cleaner-grid">
+    <div class="cleaner-card">
+        <div class="card-title">批量回溯清理</div>
+        <div class="form-field">
+            <label for="batchCount">删除最近 N 条消息</label>
+            <input id="batchCount" type="number" min="1" max="5000" placeholder="例如 100">
+        </div>
+        <button class="btn btn-danger" id="batchDeleteBtn">🗑️ 执行删除</button>
+        <div class="hint">执行前将提示确认，建议先从 50 条开始。</div>
+    </div>
+
+    <div class="cleaner-card">
+        <div class="card-title">类型定向清理</div>
+        <div class="type-grid">
+            <label class="type-item"><input type="checkbox" value="text"> 纯文本</label>
+            <label class="type-item"><input type="checkbox" value="photo"> 图片</label>
+            <label class="type-item"><input type="checkbox" value="video"> 视频</label>
+            <label class="type-item"><input type="checkbox" value="sticker"> 贴纸</label>
+        </div>
+        <div class="form-field">
+            <label for="typeLimit">扫描范围（条）</label>
+            <input id="typeLimit" type="number" min="1" max="5000" placeholder="例如 200">
+        </div>
+        <button class="btn btn-primary" id="typeDeleteBtn">🧹 开始扫描并删除</button>
+        <div class="hint">仅删除勾选类型，未勾选不处理。</div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+    const TOKEN_KEY = 'token';
+    const toast = document.getElementById('toast');
+
+    function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2400);
+    }
+
+    function getToken() {
+        return localStorage.getItem(TOKEN_KEY);
+    }
+
+    function redirectToLogin() {
+        localStorage.removeItem(TOKEN_KEY);
+        window.location.href = '/login';
+    }
+
+    async function batchDelete() {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+        const count = Number(document.getElementById('batchCount').value);
+        if (!Number.isFinite(count) || count <= 0) {
+            showToast('请输入有效的数量');
+            return;
+        }
+        if (!confirm(`确认删除最近 ${count} 条消息？`)) {
+            return;
+        }
+        const resp = await fetch('/api/cleaner/batch_delete', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ count })
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            showToast(data.detail || '删除失败');
+            return;
+        }
+        showToast(`已删除 ${data.deleted || 0} 条消息`);
+    }
+
+    async function deleteByType() {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+        const types = Array.from(document.querySelectorAll('.type-item input:checked'))
+            .map((item) => item.value);
+        const limit = Number(document.getElementById('typeLimit').value) || 100;
+        if (!types.length) {
+            showToast('请至少选择一种类型');
+            return;
+        }
+        if (!confirm(`确认扫描最近 ${limit} 条消息并删除选定类型？`)) {
+            return;
+        }
+        const resp = await fetch('/api/cleaner/delete_by_type', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ types, limit })
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            showToast(data.detail || '清理失败');
+            return;
+        }
+        showToast(`已删除 ${data.deleted || 0} 条消息（扫描 ${data.scanned || 0} 条）`);
+    }
+
+    document.getElementById('batchDeleteBtn').addEventListener('click', batchDelete);
+    document.getElementById('typeDeleteBtn').addEventListener('click', deleteByType);
+</script>
+{% endblock %}

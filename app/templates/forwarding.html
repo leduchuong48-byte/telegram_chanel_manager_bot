@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .forward-card {
+        background: rgba(12, 20, 30, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 24px;
+        padding: 24px;
+        box-shadow: 0 24px 50px rgba(6, 12, 18, 0.45);
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        min-height: 60vh;
+    }
+
+    .toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+    }
+
+    .table th,
+    .table td {
+        text-align: left;
+        padding: 12px 10px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        color: var(--text);
+    }
+
+    .table th {
+        color: var(--muted);
+        font-weight: 600;
+        font-size: 12px;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+    }
+
+    .empty {
+        font-size: 13px;
+        color: var(--muted);
+        padding: 16px 6px;
+    }
+
+    .modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(8, 12, 18, 0.6);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .modal.active {
+        display: flex;
+    }
+
+    .modal-card {
+        width: min(520px, 92vw);
+        background: rgba(12, 20, 30, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 22px;
+        box-shadow: 0 24px 50px rgba(6, 12, 18, 0.6);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .form-grid {
+        display: grid;
+        gap: 12px;
+    }
+
+    .form-field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .form-field label {
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .form-field input,
+    .form-field select {
+        background: rgba(8, 14, 22, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 10px 12px;
+        color: var(--text);
+        font-size: 13px;
+        outline: none;
+    }
+
+    .option-row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .option-row label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--muted);
+        background: rgba(8, 14, 22, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        padding: 8px 10px;
+        border-radius: 12px;
+    }
+
+    .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+
+    .toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: rgba(10, 16, 24, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: var(--text);
+        padding: 12px 18px;
+        border-radius: 12px;
+        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.45);
+        opacity: 0;
+        transform: translateY(8px);
+        transition: all 0.2s ease;
+        pointer-events: none;
+    }
+
+    .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+    }
+</style>
+
+<div class="forward-card">
+    <div class="toolbar">
+        <div style="font-size: 14px; color: var(--muted);">管理监听源与转发目标的映射规则。</div>
+        <div style="display:flex; gap:10px;">
+            <button class="btn" id="refreshBtn">刷新</button>
+            <button class="btn btn-primary" id="addBtn">新增规则</button>
+        </div>
+    </div>
+
+    <table class="table">
+        <thead>
+            <tr>
+                <th>源 ID</th>
+                <th>目标 ID</th>
+                <th>模式</th>
+                <th>选项</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="ruleBody"></tbody>
+    </table>
+    <div class="empty" id="emptyState" style="display:none;">暂无转发规则。</div>
+</div>
+
+<div class="modal" id="modal">
+    <div class="modal-card">
+        <div style="font-weight:600;">新增/更新规则</div>
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="sourceInput">源 ID</label>
+                <input id="sourceInput" placeholder="-1001234567890">
+            </div>
+            <div class="form-field">
+                <label for="targetInput">目标 ID</label>
+                <input id="targetInput" placeholder="-1009876543210">
+            </div>
+            <div class="form-field">
+                <label for="modeSelect">模式</label>
+                <select id="modeSelect">
+                    <option value="user_mode">用户模式</option>
+                    <option value="bot_mode">Bot 模式</option>
+                </select>
+            </div>
+            <div class="form-field">
+                <label>选项</label>
+                <div class="option-row">
+                    <label><input type="checkbox" id="optCopy"> 复制消息</label>
+                    <label><input type="checkbox" id="optFilterVideo"> 过滤视频</label>
+                </div>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn" id="cancelBtn">取消</button>
+            <button class="btn btn-primary" id="saveBtn">保存</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+    const TOKEN_KEY = 'token';
+    const modal = document.getElementById('modal');
+    const ruleBody = document.getElementById('ruleBody');
+    const emptyState = document.getElementById('emptyState');
+    const toast = document.getElementById('toast');
+
+    function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2400);
+    }
+
+    function getToken() {
+        return localStorage.getItem(TOKEN_KEY);
+    }
+
+    function authHeaders() {
+        const token = getToken();
+        return token ? { 'Authorization': `Bearer ${token}` } : {};
+    }
+
+    function redirectToLogin() {
+        localStorage.removeItem(TOKEN_KEY);
+        window.location.href = '/login';
+    }
+
+    function openModal() {
+        modal.classList.add('active');
+    }
+
+    function closeModal() {
+        modal.classList.remove('active');
+    }
+
+    function renderRules(rules) {
+        ruleBody.innerHTML = '';
+        if (!rules || rules.length === 0) {
+            emptyState.style.display = 'block';
+            return;
+        }
+        emptyState.style.display = 'none';
+        rules.forEach((rule) => {
+            const tr = document.createElement('tr');
+            const opts = rule.options || {};
+            const optionText = [
+                opts.copy ? '复制' : '',
+                opts.filter_video ? '过滤视频' : ''
+            ].filter(Boolean).join(' / ') || '默认';
+
+            tr.innerHTML = `
+                <td>${rule.source_id}</td>
+                <td>${rule.target_id}</td>
+                <td>${rule.type === 'user_mode' ? '用户模式' : 'Bot 模式'}</td>
+                <td>${optionText}</td>
+                <td><button class="btn" data-id="${rule.source_id}">删除</button></td>
+            `;
+            tr.querySelector('button').addEventListener('click', () => deleteRule(rule.source_id));
+            ruleBody.appendChild(tr);
+        });
+    }
+
+    async function loadRules() {
+        const resp = await fetch('/api/forwarding', { headers: authHeaders() });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const data = await resp.json();
+        renderRules(data.data || []);
+    }
+
+    async function saveRule() {
+        const sourceRaw = document.getElementById('sourceInput').value.trim();
+        const targetRaw = document.getElementById('targetInput').value.trim();
+        const mode = document.getElementById('modeSelect').value;
+        if (!sourceRaw || !targetRaw) {
+            showToast('请填写源 ID 和目标 ID');
+            return;
+        }
+        const sourceId = Number(sourceRaw);
+        const targetId = Number(targetRaw);
+        if (!Number.isFinite(sourceId) || !Number.isFinite(targetId)) {
+            showToast('ID 必须是数字');
+            return;
+        }
+        const options = {
+            copy: document.getElementById('optCopy').checked,
+            filter_video: document.getElementById('optFilterVideo').checked
+        };
+        const resp = await fetch('/api/forwarding', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({
+                source_id: sourceId,
+                target_id: targetId,
+                type: mode,
+                options
+            })
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const data = await resp.json();
+        if (!resp.ok) {
+            showToast(data.detail || '保存失败');
+            return;
+        }
+        showToast(data.message || '已保存');
+        closeModal();
+        await loadRules();
+    }
+
+    async function deleteRule(sourceId) {
+        const resp = await fetch(`/api/forwarding/${sourceId}`, {
+            method: 'DELETE',
+            headers: authHeaders()
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const data = await resp.json();
+        if (!resp.ok) {
+            showToast(data.detail || '删除失败');
+            return;
+        }
+        showToast(data.message || '已删除');
+        await loadRules();
+    }
+
+    document.getElementById('addBtn').addEventListener('click', openModal);
+    document.getElementById('cancelBtn').addEventListener('click', closeModal);
+    document.getElementById('saveBtn').addEventListener('click', saveRule);
+    document.getElementById('refreshBtn').addEventListener('click', loadRules);
+    modal.addEventListener('click', (event) => {
+        if (event.target === modal) {
+            closeModal();
+        }
+    });
+
+    loadRules();
+</script>
+{% endblock %}

@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Panel - Bot 设置{% endblock %}
+
+{% block page_title %}Bot 设置{% endblock %}
+{% block page_subtitle %}集中管理 Bot 核心鉴权与目标群组参数{% endblock %}
+
+{% block page_actions %}
+<button class="btn" id="btn-refresh">刷新</button>
+<button class="btn btn-primary" id="btn-save">保存设置</button>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+    .form-card {
+        background: rgba(12, 20, 30, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 22px;
+        padding: 24px;
+        box-shadow: 0 20px 44px rgba(6, 12, 18, 0.45);
+    }
+
+    .form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 18px;
+    }
+
+    .form-field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .form-field label {
+        font-size: 13px;
+        color: var(--muted);
+        letter-spacing: 0.4px;
+    }
+
+    .form-field input {
+        background: rgba(8, 14, 22, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        padding: 12px 14px;
+        color: var(--text);
+        font-size: 14px;
+        outline: none;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .form-field input:focus {
+        border-color: rgba(10, 132, 255, 0.6);
+        box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.15);
+    }
+
+    .hint {
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: rgba(10, 16, 24, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: var(--text);
+        padding: 12px 18px;
+        border-radius: 12px;
+        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.45);
+        opacity: 0;
+        transform: translateY(8px);
+        transition: all 0.2s ease;
+        pointer-events: none;
+    }
+
+    .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="form-card">
+    <div class="form-grid">
+        <div class="form-field">
+            <label for="bot_token">Bot Token</label>
+            <input id="bot_token" type="password" placeholder="未设置">
+            <div class="hint">若显示 *****，表示已存在密钥。留空可清除。</div>
+        </div>
+        <div class="form-field">
+            <label for="api_id">API ID</label>
+            <input id="api_id" type="text" placeholder="例如：123456">
+        </div>
+        <div class="form-field">
+            <label for="api_hash">API Hash</label>
+            <input id="api_hash" type="password" placeholder="例如：abcd1234">
+        </div>
+        <div class="form-field">
+            <label for="target_chat_id">目标群组 ID</label>
+            <input id="target_chat_id" type="text" placeholder="例如：-1001234567890">
+        </div>
+        <div class="form-field">
+            <label for="admin_id">管理员 ID</label>
+            <input id="admin_id" type="text" placeholder="例如：12345678">
+        </div>
+    </div>
+</div>
+<div class="toast" id="toast"></div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+    const TOKEN_KEY = 'token';
+    const TOKEN_MASK = '*****';
+
+    const fields = {
+        bot_token: document.getElementById('bot_token'),
+        api_id: document.getElementById('api_id'),
+        api_hash: document.getElementById('api_hash'),
+        target_chat_id: document.getElementById('target_chat_id'),
+        admin_id: document.getElementById('admin_id')
+    };
+
+    const toast = document.getElementById('toast');
+    const btnSave = document.getElementById('btn-save');
+    const btnRefresh = document.getElementById('btn-refresh');
+
+    function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2400);
+    }
+
+    function getToken() {
+        return localStorage.getItem(TOKEN_KEY);
+    }
+
+    function redirectToLogin() {
+        localStorage.removeItem(TOKEN_KEY);
+        window.location.href = '/login';
+    }
+
+    async function loadSettings() {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+        const resp = await fetch('/api/settings/bot', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        if (!resp.ok) {
+            showToast('加载失败，请稍后重试');
+            return;
+        }
+        const payload = await resp.json();
+        const data = payload.data || {};
+        fields.bot_token.value = data.bot_token || '';
+        fields.api_id.value = data.api_id ?? '';
+        fields.api_hash.value = data.api_hash ?? '';
+        fields.target_chat_id.value = data.target_chat_id ?? '';
+        fields.admin_id.value = data.admin_id ?? '';
+    }
+
+    async function saveSettings() {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+
+        const form = new FormData();
+        Object.keys(fields).forEach((key) => {
+            form.append(key, fields[key].value.trim());
+        });
+
+        const resp = await fetch('/api/settings/bot', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            body: form
+        });
+
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+
+        if (!resp.ok) {
+            const payload = await resp.json().catch(() => ({}));
+            showToast(payload.detail || '保存失败');
+            return;
+        }
+
+        const payload = await resp.json().catch(() => ({}));
+        showToast(payload.message || '已保存');
+        await loadSettings();
+    }
+
+    btnSave.addEventListener('click', saveSettings);
+    btnRefresh.addEventListener('click', loadSettings);
+
+    loadSettings();
+</script>
+{% endblock %}

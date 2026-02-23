@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 18px;
+    }
+
+    .card {
+        background: rgba(12, 20, 30, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.4);
+        min-height: 160px;
+    }
+
+    .card-title {
+        font-size: 16px;
+        font-weight: 600;
+    }
+
+    .card-desc {
+        font-size: 13px;
+        color: var(--muted);
+        line-height: 1.6;
+    }
+
+    .card-actions {
+        margin-top: auto;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+</style>
+
+<div class="grid">
+    <div class="card">
+        <div class="card-title">Bot 设置</div>
+        <div class="card-desc">集中维护 TG_BOT_TOKEN、API ID / HASH 与目标群组。</div>
+        <div class="card-actions">
+            <a class="btn btn-primary" href="/bot_settings">进入设置</a>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">配置编辑器</div>
+        <div class="card-desc">在线修改 config.json，支持热重载与备份。</div>
+        <div class="card-actions">
+            <a class="btn" href="/config_editor">打开 JSON 编辑器</a>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">标签管理</div>
+        <div class="card-desc">维护标签组、别名与标签库（功能预留）。</div>
+        <div class="card-actions">
+            <a class="btn" href="/tags">进入模块</a>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">消息筛选</div>
+        <div class="card-desc">配置屏蔽词与过滤策略（功能预留）。</div>
+        <div class="card-actions">
+            <a class="btn" href="/filters">进入模块</a>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">系统日志</div>
+        <div class="card-desc">实时查看 Bot 与调度器运行状态。</div>
+        <div class="card-actions">
+            <a class="btn" href="/logs">打开终端</a>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">健康检查</div>
+        <div class="card-desc">快速确认 Web Admin 状态。</div>
+        <div class="card-actions">
+            <a class="btn" href="/health">访问 /health</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

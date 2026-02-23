@@ -1,0 +1,12 @@
+python-telegram-bot==22.5
+fastapi==0.104.1
+jinja2==3.1.4
+uvicorn[standard]==0.24.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
+python-multipart==0.0.6
+apscheduler==3.10.4
+telethon
+pydantic==2.5.0
+pydantic-settings==2.1.0

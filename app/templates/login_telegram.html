@@ -1,0 +1,368 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .session-card {
+        background: rgba(12, 20, 30, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 24px;
+        padding: 26px;
+        box-shadow: 0 24px 50px rgba(6, 12, 18, 0.45);
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        min-height: 60vh;
+    }
+
+    .stepper {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+    }
+
+    .step {
+        padding: 12px 16px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(8, 14, 22, 0.6);
+        font-size: 13px;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .step.active {
+        border-color: rgba(10, 132, 255, 0.45);
+        background: rgba(10, 132, 255, 0.12);
+        color: var(--text);
+    }
+
+    .step.done {
+        color: #82d4ff;
+        border-color: rgba(130, 212, 255, 0.3);
+    }
+
+    .form-grid {
+        display: grid;
+        gap: 16px;
+        max-width: 520px;
+    }
+
+    .form-field {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .form-field label {
+        font-size: 13px;
+        color: var(--muted);
+    }
+
+    .form-field input {
+        background: rgba(8, 14, 22, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        padding: 12px 14px;
+        color: var(--text);
+        font-size: 14px;
+        outline: none;
+    }
+
+    .form-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .status-card {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 18px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(8, 14, 22, 0.7);
+    }
+
+    .status-text {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .status-text strong {
+        font-size: 15px;
+    }
+
+    .status-text span {
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: rgba(10, 16, 24, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        color: var(--text);
+        padding: 12px 18px;
+        border-radius: 12px;
+        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.45);
+        opacity: 0;
+        transform: translateY(8px);
+        transition: all 0.2s ease;
+        pointer-events: none;
+    }
+
+    .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+    }
+</style>
+
+<div class="session-card">
+    <div class="status-card" id="statusBox" style="display:none;">
+        <div class="status-text">
+            <strong>✅ 已连接 Telegram 账号</strong>
+            <span id="statusDetail">账号信息加载中...</span>
+        </div>
+        <button class="btn" id="logoutBtn">注销</button>
+    </div>
+
+    <div id="stepsBox">
+        <div class="stepper">
+            <div class="step" data-step="1">① 输入手机号</div>
+            <div class="step" data-step="2">② 输入验证码</div>
+            <div class="step" data-step="3">③ 2FA 密码</div>
+        </div>
+
+        <div class="form-grid" id="step1">
+            <div class="form-field">
+                <label for="phoneInput">手机号</label>
+                <input id="phoneInput" placeholder="+86 13800000000">
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-primary" id="sendCodeBtn">发送验证码</button>
+            </div>
+        </div>
+
+        <div class="form-grid" id="step2" style="display:none;">
+            <div class="form-field">
+                <label for="codeInput">验证码</label>
+                <input id="codeInput" placeholder="请输入短信/Telegram 验证码">
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-primary" id="loginBtn">登录</button>
+                <button class="btn" id="backToPhone">返回修改手机号</button>
+            </div>
+        </div>
+
+        <div class="form-grid" id="step3" style="display:none;">
+            <div class="form-field">
+                <label for="passwordInput">二次验证密码</label>
+                <input id="passwordInput" type="password" placeholder="请输入 2FA 密码">
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-primary" id="verifyBtn">验证</button>
+                <button class="btn" id="backToCode">返回验证码</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+    const TOKEN_KEY = 'token';
+    const PHONE_KEY = 'tg_phone';
+    const HASH_KEY = 'tg_phone_code_hash';
+    const toast = document.getElementById('toast');
+    const statusBox = document.getElementById('statusBox');
+    const statusDetail = document.getElementById('statusDetail');
+    const stepsBox = document.getElementById('stepsBox');
+    const stepEls = document.querySelectorAll('.step');
+    const step1 = document.getElementById('step1');
+    const step2 = document.getElementById('step2');
+    const step3 = document.getElementById('step3');
+    const phoneInput = document.getElementById('phoneInput');
+    const codeInput = document.getElementById('codeInput');
+    const passwordInput = document.getElementById('passwordInput');
+
+    function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2400);
+    }
+
+    function getToken() {
+        return localStorage.getItem(TOKEN_KEY);
+    }
+
+    function authHeaders() {
+        const token = getToken();
+        return token ? { 'Authorization': `Bearer ${token}` } : {};
+    }
+
+    function redirectToLogin() {
+        localStorage.removeItem(TOKEN_KEY);
+        window.location.href = '/login';
+    }
+
+    function setStep(step) {
+        stepEls.forEach((el) => {
+            const idx = Number(el.dataset.step || 0);
+            el.classList.toggle('active', idx === step);
+            el.classList.toggle('done', idx < step);
+        });
+        step1.style.display = step === 1 ? 'grid' : 'none';
+        step2.style.display = step === 2 ? 'grid' : 'none';
+        step3.style.display = step === 3 ? 'grid' : 'none';
+    }
+
+    function maskPhone(raw) {
+        if (!raw) return '';
+        const digits = String(raw);
+        if (digits.length < 7) return digits;
+        return digits.slice(0, 3) + '****' + digits.slice(-2);
+    }
+
+    async function checkStatus() {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+        const resp = await fetch('/api/session/status', { headers: authHeaders() });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const data = await resp.json();
+        if (data.connected) {
+            statusBox.style.display = 'flex';
+            stepsBox.style.display = 'none';
+            const label = data.phone ? maskPhone(data.phone) : (data.username || data.user_id || '');
+            statusDetail.textContent = label ? `已连接账号：${label}` : '已连接，未返回账号信息';
+        } else {
+            statusBox.style.display = 'none';
+            stepsBox.style.display = 'block';
+            setStep(1);
+        }
+    }
+
+    async function sendCode() {
+        const phone = phoneInput.value.trim();
+        if (!phone) {
+            showToast('请输入手机号');
+            return;
+        }
+        const resp = await fetch('/api/session/send_code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({ phone })
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const data = await resp.json();
+        if (!resp.ok) {
+            showToast(data.detail || '发送验证码失败');
+            return;
+        }
+        sessionStorage.setItem(PHONE_KEY, phone);
+        sessionStorage.setItem(HASH_KEY, data.phone_code_hash || '');
+        showToast(data.message || '验证码已发送');
+        setStep(2);
+    }
+
+    async function login() {
+        const phone = phoneInput.value.trim() || sessionStorage.getItem(PHONE_KEY) || '';
+        const code = codeInput.value.trim();
+        const hash = sessionStorage.getItem(HASH_KEY) || '';
+        if (!phone || !code || !hash) {
+            showToast('请先发送验证码');
+            return;
+        }
+        const resp = await fetch('/api/session/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({ phone, code, phone_code_hash: hash })
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const data = await resp.json();
+        if (!resp.ok) {
+            showToast(data.detail || '登录失败');
+            return;
+        }
+        if (data.need_password) {
+            showToast('需要二次验证密码');
+            setStep(3);
+            return;
+        }
+        showToast(data.message || '登录成功');
+        await checkStatus();
+    }
+
+    async function verify2fa() {
+        const phone = phoneInput.value.trim() || sessionStorage.getItem(PHONE_KEY) || '';
+        const password = passwordInput.value.trim();
+        if (!phone || !password) {
+            showToast('请输入 2FA 密码');
+            return;
+        }
+        const resp = await fetch('/api/session/2fa', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() },
+            body: JSON.stringify({ phone, password })
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const data = await resp.json();
+        if (!resp.ok) {
+            showToast(data.detail || '验证失败');
+            return;
+        }
+        showToast(data.message || '验证成功');
+        await checkStatus();
+    }
+
+    async function logout() {
+        const resp = await fetch('/api/session/logout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders() }
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const data = await resp.json();
+        showToast(data.message || '已注销');
+        sessionStorage.removeItem(PHONE_KEY);
+        sessionStorage.removeItem(HASH_KEY);
+        await checkStatus();
+    }
+
+    document.getElementById('sendCodeBtn').addEventListener('click', sendCode);
+    document.getElementById('loginBtn').addEventListener('click', login);
+    document.getElementById('verifyBtn').addEventListener('click', verify2fa);
+    document.getElementById('logoutBtn').addEventListener('click', logout);
+    document.getElementById('backToPhone').addEventListener('click', () => setStep(1));
+    document.getElementById('backToCode').addEventListener('click', () => setStep(2));
+
+    const storedPhone = sessionStorage.getItem(PHONE_KEY);
+    if (storedPhone) {
+        phoneInput.value = storedPhone;
+    }
+
+    checkStatus();
+</script>
+{% endblock %}

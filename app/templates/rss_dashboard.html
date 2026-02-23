@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="RSS Bot">
+    <meta name="theme-color" content="#0b1220">
+    <link rel="manifest" href="/static/manifest.json">
+    <title>RSS Bot Console</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+    <style>
+        :root {
+            --ios-gray-1: #1c1c1e;
+            --ios-gray-2: #2c2c2e;
+            --ios-gray-3: #3a3a3c;
+            --ios-gray-4: #8e8e93;
+            --ios-blue: #0a84ff;
+            --ios-green: #30d158;
+            --ios-orange: #ff9f0a;
+            --glass-bg: rgba(18, 24, 36, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --text-main: #e9eef5;
+            --text-muted: #9fb0c3;
+        }
+
+        body {
+            font-family: "Manrope", sans-serif;
+            color: var(--text-main);
+            min-height: 100vh;
+            background: radial-gradient(circle at 10% 20%, rgba(10, 132, 255, 0.25), transparent 40%),
+                        radial-gradient(circle at 90% 10%, rgba(48, 209, 88, 0.18), transparent 45%),
+                        radial-gradient(circle at 20% 80%, rgba(255, 159, 10, 0.18), transparent 45%),
+                        linear-gradient(160deg, #0b1220, #121c2b 60%, #0c1119);
+            background-attachment: fixed;
+        }
+
+        .glass-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 30px 60px rgba(5, 10, 18, 0.45);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--ios-gray-4);
+            box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+            animation: pulse 2.4s ease-in-out infinite;
+        }
+
+        .status-dot.online {
+            background: var(--ios-green);
+            box-shadow: 0 0 12px rgba(48, 209, 88, 0.7);
+        }
+
+        .status-dot.warning {
+            background: var(--ios-orange);
+            box-shadow: 0 0 12px rgba(255, 159, 10, 0.7);
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3); opacity: 0.6; }
+        }
+
+        .stat-card {
+            padding: 20px;
+            min-height: 160px;
+        }
+
+        .stat-title {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .stat-value {
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        .toolbar-input {
+            background: rgba(10, 16, 24, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 999px;
+            padding: 12px 18px;
+            color: var(--text-main);
+        }
+
+        .btn-ios {
+            border-radius: 999px;
+            padding: 10px 18px;
+            font-weight: 600;
+        }
+
+        .btn-glow {
+            background: linear-gradient(135deg, rgba(10, 132, 255, 0.95), rgba(10, 132, 255, 0.6));
+            border: none;
+            color: #fff;
+            box-shadow: 0 18px 30px rgba(10, 132, 255, 0.3);
+        }
+
+        .console-box {
+            background: #0b1117;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 18px;
+            padding: 16px;
+            font-family: "JetBrains Mono", monospace;
+            color: #9df6c4;
+            min-height: 240px;
+            max-height: 320px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+
+        .rule-card {
+            padding: 18px;
+        }
+
+        .rule-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .rule-title {
+            font-weight: 600;
+        }
+
+        .channel-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            background: rgba(10, 132, 255, 0.15);
+            color: #cfe6ff;
+            font-size: 12px;
+        }
+
+        .rule-actions .btn {
+            border-radius: 12px;
+        }
+
+        .modal-content {
+            background: rgba(12, 18, 28, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 20px;
+        }
+
+        .nav-tabs .nav-link {
+            color: var(--text-muted);
+            border: none;
+        }
+
+        .nav-tabs .nav-link.active {
+            color: var(--text-main);
+            background: rgba(10, 132, 255, 0.2);
+            border-radius: 999px;
+        }
+
+        .form-control, .form-select {
+            background: rgba(10, 16, 24, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-main);
+        }
+
+        .form-control::placeholder {
+            color: rgba(159, 176, 195, 0.7);
+        }
+
+        .badge-soft {
+            background: rgba(48, 209, 88, 0.2);
+            color: #b8ffd8;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg px-3 px-md-5 py-3">
+        <div class="container-fluid">
+            <a class="navbar-brand d-flex align-items-center gap-2 text-white" href="#">
+                <i class="bi bi-rss-fill text-info"></i>
+                <span class="fw-bold">RSS Bot</span>
+            </a>
+            <div class="d-flex align-items-center gap-3">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="status-dot" id="botStatusDot"></span>
+                    <span class="small text-muted">Ping</span>
+                    <span class="fw-semibold" id="botPing">-- ms</span>
+                </div>
+                <button class="btn btn-outline-light btn-ios" data-bs-toggle="modal" data-bs-target="#settingsModal">
+                    <i class="bi bi-gear"></i>
+                </button>
+                <button class="btn btn-outline-danger btn-ios" id="logoutBtn">
+                    退出
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container-fluid px-3 px-md-5 pb-5">
+        <div class="row g-4">
+            <div class="col-lg-4">
+                <div class="glass-card stat-card animate__animated animate__fadeInUp">
+                    <div class="stat-title">Bot Info</div>
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="rounded-circle bg-primary bg-opacity-25 d-flex align-items-center justify-content-center" style="width:56px;height:56px;">
+                            <i class="bi bi-robot fs-4 text-info"></i>
+                        </div>
+                        <div>
+                            <div class="stat-value" id="botName">未连接</div>
+                            <div class="text-muted small" id="botMeta">@unknown · ID: --</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="glass-card stat-card animate__animated animate__fadeInUp">
+                    <div class="stat-title">运行状态</div>
+                    <div class="stat-value" id="botUptime">--</div>
+                    <div class="d-flex gap-3 mt-3">
+                        <div class="badge-soft">CPU <span id="botCpu">--%</span></div>
+                        <div class="badge-soft">RAM <span id="botRam">--%</span></div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="glass-card stat-card animate__animated animate__fadeInUp">
+                    <div class="stat-title">订阅与转发</div>
+                    <div class="stat-value"><span id="subCount">--</span> 个订阅</div>
+                    <div class="text-muted mt-2">今日转发 <span id="forwardCount">--</span> 条</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="glass-card p-3 p-md-4 mt-4 animate__animated animate__fadeInUp">
+            <div class="row g-3 align-items-center">
+                <div class="col-lg-6">
+                    <input class="form-control toolbar-input" id="searchInput" placeholder="搜索规则 / 频道 / 标签">
+                </div>
+                <div class="col-lg-6 d-flex justify-content-lg-end gap-2 flex-wrap">
+                    <button class="btn btn-glow btn-ios" data-bs-toggle="modal" data-bs-target="#ruleEditorModal">
+                        <i class="bi bi-plus-circle"></i> 新建规则
+                    </button>
+                    <button class="btn btn-outline-light btn-ios" data-bs-toggle="collapse" data-bs-target="#logPanel">
+                        <i class="bi bi-terminal"></i> 查看日志
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="collapse mt-3" id="logPanel">
+            <div class="glass-card p-3 p-md-4">
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <div class="fw-semibold">运行日志</div>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-outline-light btn-sm" id="copyLogBtn">复制</button>
+                        <button class="btn btn-outline-danger btn-sm" id="clearLogBtn">清屏</button>
+                    </div>
+                </div>
+                <div class="console-box" id="logConsole">等待日志数据...</div>
+            </div>
+        </div>
+
+        <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4 mt-1" id="rulesGrid">
+            <!-- Rules injected by JS -->
+        </div>
+    </main>
+
+    <div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header border-0">
+                    <h5 class="modal-title">全局设置</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-telegram" type="button">Telegram</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-ai" type="button">AI Service</button>
+                        </li>
+                    </ul>
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="tab-telegram">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">API ID</label>
+                                    <input class="form-control" id="globalApiId">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">API Hash</label>
+                                    <input class="form-control" id="globalApiHash">
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label">Bot Token</label>
+                                    <input class="form-control" id="globalBotToken">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="tab-ai">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Provider</label>
+                                    <select class="form-select" id="aiProvider">
+                                        <option value="openai">OpenAI</option>
+                                        <option value="azure">Azure</option>
+                                        <option value="local">Local</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">API Key</label>
+                                    <input class="form-control" id="aiKey">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0">
+                    <button class="btn btn-outline-light btn-ios" data-bs-dismiss="modal">取消</button>
+                    <button class="btn btn-glow btn-ios" onclick="saveGlobalSettings()">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="ruleEditorModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header border-0">
+                    <h5 class="modal-title">规则编辑器</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#rule-basic">基础</button></li>
+                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rule-keywords">关键词</button></li>
+                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rule-media">媒体</button></li>
+                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rule-ai">AI</button></li>
+                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rule-format">修饰</button></li>
+                        <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#rule-ops">运维</button></li>
+                    </ul>
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="rule-basic">
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">源频道/群组</label>
+                                    <input class="form-control" id="ruleSource">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">目标频道/群组</label>
+                                    <input class="form-control" id="ruleTarget">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">模式</label>
+                                    <select class="form-select" id="ruleMode">
+                                        <option value="user_mode">用户模式</option>
+                                        <option value="bot_mode">Bot 模式</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">规则名称</label>
+                                    <input class="form-control" id="ruleName">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="rule-keywords">
+                            <textarea class="form-control" rows="6" id="ruleKeywords" placeholder="每行一个关键词"></textarea>
+                        </div>
+                        <div class="tab-pane fade" id="rule-media">
+                            <textarea class="form-control" rows="6" id="ruleMedia" placeholder="媒体筛选配置"></textarea>
+                        </div>
+                        <div class="tab-pane fade" id="rule-ai">
+                            <textarea class="form-control" rows="6" id="ruleAi" placeholder="AI 处理策略"></textarea>
+                        </div>
+                        <div class="tab-pane fade" id="rule-format">
+                            <textarea class="form-control" rows="6" id="ruleFormat" placeholder="消息修饰/模板"></textarea>
+                        </div>
+                        <div class="tab-pane fade" id="rule-ops">
+                            <textarea class="form-control" rows="6" id="ruleOps" placeholder="运维与定时配置"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-0">
+                    <button class="btn btn-outline-light btn-ios" data-bs-dismiss="modal">取消</button>
+                    <button class="btn btn-glow btn-ios" onclick="saveRuleDetail()">保存规则</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="sendTestModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header border-0">
+                    <h5 class="modal-title">发送测试消息</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <textarea class="form-control" rows="4" id="testMessage" placeholder="输入测试内容"></textarea>
+                </div>
+                <div class="modal-footer border-0">
+                    <button class="btn btn-outline-light btn-ios" data-bs-dismiss="modal">取消</button>
+                    <button class="btn btn-glow btn-ios" onclick="sendTestMessage()">发送</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.8/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script>
+        const api = axios.create();
+        const TOKEN_KEY = 'token';
+        let logTimer = null;
+        let statusTimer = null;
+        let systemTimer = null;
+
+        api.interceptors.request.use((config) => {
+            const token = localStorage.getItem(TOKEN_KEY);
+            if (token) {
+                config.headers.Authorization = `Bearer ${token}`;
+            }
+            return config;
+        });
+
+        api.interceptors.response.use((response) => response, (error) => {
+            if (error.response && error.response.status === 401) {
+                localStorage.removeItem(TOKEN_KEY);
+                window.location.href = '/login';
+            }
+            return Promise.reject(error);
+        });
+
+        function toast(title, icon = 'success') {
+            Swal.fire({
+                toast: true,
+                position: 'bottom-end',
+                showConfirmButton: false,
+                timer: 2200,
+                icon,
+                title
+            });
+        }
+
+        function registerServiceWorker() {
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+            }
+        }
+
+        async function loadBotStatus() {
+            try {
+                const { data } = await api.get('/api/bot/status');
+                document.getElementById('botName').textContent = data.name || 'RSS Bot';
+                document.getElementById('botMeta').textContent = `@${data.username || 'unknown'} · ID: ${data.id || '--'}`;
+                document.getElementById('botUptime').textContent = data.uptime || '--';
+                document.getElementById('subCount').textContent = data.subscriptions ?? '--';
+                document.getElementById('forwardCount').textContent = data.forwarded_today ?? '--';
+                document.getElementById('botPing').textContent = `${data.ping ?? '--'} ms`;
+                document.getElementById('botStatusDot').classList.add('online');
+            } catch (err) {
+                document.getElementById('botStatusDot').classList.remove('online');
+            }
+        }
+
+        async function loadSystemStatus() {
+            try {
+                const { data } = await api.get('/api/system/status');
+                document.getElementById('botCpu').textContent = data.cpu ?? '--';
+                document.getElementById('botRam').textContent = data.ram ?? '--';
+            } catch (err) {
+                document.getElementById('botCpu').textContent = '--';
+                document.getElementById('botRam').textContent = '--';
+            }
+        }
+
+        async function loadRules() {
+            try {
+                const { data } = await api.get('/api/rules');
+                renderRules(data || []);
+            } catch (err) {
+                renderRules([]);
+            }
+        }
+
+        function renderRules(rules) {
+            const grid = document.getElementById('rulesGrid');
+            const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
+            grid.innerHTML = '';
+            const filtered = (rules || []).filter((rule) => {
+                if (!keyword) return true;
+                return String(rule.source || '').toLowerCase().includes(keyword)
+                    || String(rule.target || '').toLowerCase().includes(keyword)
+                    || String(rule.name || '').toLowerCase().includes(keyword);
+            });
+
+            if (!filtered.length) {
+                grid.innerHTML = '<div class="text-muted">暂无规则</div>';
+                return;
+            }
+
+            filtered.forEach((rule) => {
+                const card = document.createElement('div');
+                card.className = 'col';
+                card.innerHTML = `
+                    <div class="glass-card rule-card h-100">
+                        <div class="rule-header">
+                            <div>
+                                <div class="rule-title">${rule.name || '未命名规则'}</div>
+                                <div class="text-muted small">${rule.source || '--'} → ${rule.target || '--'}</div>
+                            </div>
+                            <span class="status-dot ${rule.enabled ? 'online' : ''}"></span>
+                        </div>
+                        <div class="mt-3 d-flex flex-column gap-2">
+                            <span class="channel-tag"><i class="bi bi-broadcast"></i> ${rule.mode || 'user_mode'}</span>
+                            <div class="d-flex gap-2 rule-actions">
+                                <button class="btn btn-outline-light btn-sm" onclick="loadRuleDetail('${rule.id}')">编辑</button>
+                                <button class="btn btn-outline-info btn-sm" onclick="toggleRule('${rule.id}')">开关</button>
+                                <button class="btn btn-outline-danger btn-sm" onclick="deleteRule('${rule.id}')">删除</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        async function saveGlobalSettings() {
+            const payload = {
+                api_id: document.getElementById('globalApiId').value.trim(),
+                api_hash: document.getElementById('globalApiHash').value.trim(),
+                bot_token: document.getElementById('globalBotToken').value.trim(),
+                ai_provider: document.getElementById('aiProvider').value,
+                ai_key: document.getElementById('aiKey').value.trim()
+            };
+            try {
+                await api.patch('/api/config/global', payload);
+                toast('设置已保存');
+            } catch (err) {
+                toast('保存失败', 'error');
+            }
+        }
+
+        async function loadRuleDetail(id) {
+            if (!id) return;
+            try {
+                const { data } = await api.get(`/api/rules/${id}`);
+                document.getElementById('ruleSource').value = data.source || '';
+                document.getElementById('ruleTarget').value = data.target || '';
+                document.getElementById('ruleMode').value = data.mode || 'user_mode';
+                document.getElementById('ruleName').value = data.name || '';
+                document.getElementById('ruleKeywords').value = (data.keywords || []).join('\\n');
+                document.getElementById('ruleMedia').value = JSON.stringify(data.media || {}, null, 2);
+                document.getElementById('ruleAi').value = JSON.stringify(data.ai || {}, null, 2);
+                document.getElementById('ruleFormat').value = JSON.stringify(data.format || {}, null, 2);
+                document.getElementById('ruleOps').value = JSON.stringify(data.ops || {}, null, 2);
+                new bootstrap.Modal(document.getElementById('ruleEditorModal')).show();
+            } catch (err) {
+                toast('加载规则失败', 'error');
+            }
+        }
+
+        async function saveRuleDetail() {
+            const payload = {
+                source: document.getElementById('ruleSource').value.trim(),
+                target: document.getElementById('ruleTarget').value.trim(),
+                mode: document.getElementById('ruleMode').value,
+                name: document.getElementById('ruleName').value.trim(),
+                keywords: document.getElementById('ruleKeywords').value.split('\\n').filter(Boolean),
+                media: document.getElementById('ruleMedia').value,
+                ai: document.getElementById('ruleAi').value,
+                format: document.getElementById('ruleFormat').value,
+                ops: document.getElementById('ruleOps').value
+            };
+            try {
+                await api.post('/api/rules', payload);
+                toast('规则已保存');
+                await loadRules();
+            } catch (err) {
+                toast('保存失败', 'error');
+            }
+        }
+
+        async function startRuleBackfill(id) {
+            try {
+                await api.post(`/api/rules/${id}/backfill`);
+                toast('已触发回填');
+            } catch (err) {
+                toast('回填失败', 'error');
+            }
+        }
+
+        async function toggleRule(id) {
+            try {
+                await api.post(`/api/rules/${id}/toggle`);
+                toast('状态已更新');
+                await loadRules();
+            } catch (err) {
+                toast('操作失败', 'error');
+            }
+        }
+
+        async function deleteRule(id) {
+            const result = await Swal.fire({
+                title: '确认删除该规则？',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: '删除',
+                cancelButtonText: '取消'
+            });
+            if (!result.isConfirmed) return;
+            try {
+                await api.delete(`/api/rules/${id}`);
+                toast('已删除');
+                await loadRules();
+            } catch (err) {
+                toast('删除失败', 'error');
+            }
+        }
+
+        async function sendTestMessage() {
+            const content = document.getElementById('testMessage').value.trim();
+            if (!content) {
+                toast('请输入内容', 'error');
+                return;
+            }
+            try {
+                await api.post('/api/rules/test', { content });
+                toast('已发送');
+            } catch (err) {
+                toast('发送失败', 'error');
+            }
+        }
+
+        async function pollLogs() {
+            try {
+                const { data } = await api.get('/api/logs/tail');
+                const consoleBox = document.getElementById('logConsole');
+                consoleBox.textContent = (data.lines || []).join('\\n');
+                consoleBox.scrollTop = consoleBox.scrollHeight;
+            } catch (err) {
+                document.getElementById('logConsole').textContent = '日志获取失败';
+            }
+        }
+
+        function startLogPolling() {
+            if (logTimer) return;
+            pollLogs();
+            logTimer = setInterval(pollLogs, 3000);
+        }
+
+        function stopLogPolling() {
+            if (!logTimer) return;
+            clearInterval(logTimer);
+            logTimer = null;
+        }
+
+        document.getElementById('logPanel').addEventListener('shown.bs.collapse', startLogPolling);
+        document.getElementById('logPanel').addEventListener('hidden.bs.collapse', stopLogPolling);
+        document.getElementById('clearLogBtn').addEventListener('click', () => {
+            document.getElementById('logConsole').textContent = '';
+        });
+        document.getElementById('copyLogBtn').addEventListener('click', async () => {
+            const text = document.getElementById('logConsole').textContent;
+            try {
+                await navigator.clipboard.writeText(text);
+                toast('已复制');
+            } catch (err) {
+                toast('复制失败', 'error');
+            }
+        });
+
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            localStorage.removeItem(TOKEN_KEY);
+            window.location.href = '/login';
+        });
+
+        document.getElementById('searchInput').addEventListener('input', () => loadRules());
+
+        registerServiceWorker();
+        loadBotStatus();
+        loadSystemStatus();
+        loadRules();
+        statusTimer = setInterval(loadBotStatus, 5000);
+        systemTimer = setInterval(loadSystemStatus, 8000);
+    </script>
+</body>
+</html>

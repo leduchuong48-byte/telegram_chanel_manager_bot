@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .log-shell {
+        background: rgba(18, 28, 40, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 20px;
+        box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(20px);
+        display: flex;
+        flex-direction: column;
+        min-height: 70vh;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .log-toolbar {
+        padding: 16px 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(10, 16, 24, 0.6);
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    .log-title {
+        font-weight: 700;
+        font-size: 15px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #8b949e;
+        transition: background 0.3s;
+    }
+
+    .status-dot.connected {
+        background: #2ea043;
+        box-shadow: 0 0 10px rgba(46, 160, 67, 0.4);
+    }
+
+    .status-dot.disconnected {
+        background: #da3633;
+    }
+
+    .log-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .log-actions button,
+    .log-actions select {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: var(--text);
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .log-actions select {
+        appearance: none;
+        padding-right: 26px;
+        background-image: linear-gradient(45deg, transparent 50%, var(--text) 50%),
+            linear-gradient(135deg, var(--text) 50%, transparent 50%);
+        background-position: calc(100% - 14px) 50%, calc(100% - 8px) 50%;
+        background-size: 6px 6px, 6px 6px;
+        background-repeat: no-repeat;
+    }
+
+    .log-actions button:hover,
+    .log-actions select:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+
+    .log-actions button:active {
+        transform: translateY(1px);
+    }
+
+    .btn-clear {
+        color: #f85149;
+        border-color: rgba(248, 81, 73, 0.3);
+    }
+
+    .btn-clear:hover {
+        background: rgba(248, 81, 73, 0.1);
+    }
+
+    #terminal {
+        flex: 1;
+        background: #0d1117;
+        padding: 20px;
+        overflow-y: auto;
+        font-family: "JetBrains Mono", "Fira Code", monospace;
+        font-size: 13px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+        scroll-behavior: smooth;
+    }
+
+    .log-entry {
+        margin-bottom: 2px;
+    }
+
+    .log-entry[data-level="DEBUG"] {
+        color: #8b949e;
+    }
+
+    .log-entry[data-level="INFO"] {
+        color: var(--text);
+    }
+
+    .log-entry[data-level="WARNING"] {
+        color: #d29922;
+    }
+
+    .log-entry[data-level="ERROR"],
+    .log-entry[data-level="CRITICAL"] {
+        color: #da3633;
+    }
+
+    #terminal::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    #terminal::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 4px;
+    }
+
+    #terminal::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.25);
+    }
+
+    .scroll-to-bottom {
+        position: absolute;
+        right: 24px;
+        bottom: 24px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: rgba(10, 132, 255, 0.16);
+        border: 1px solid rgba(10, 132, 255, 0.3);
+        color: var(--text);
+        font-size: 12px;
+        display: none;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
+        transition: transform 0.2s ease, background 0.2s ease;
+    }
+
+    .scroll-to-bottom.show {
+        display: inline-flex;
+    }
+
+    .scroll-to-bottom:hover {
+        background: rgba(10, 132, 255, 0.25);
+        transform: translateY(-2px);
+    }
+</style>
+
+<div class="log-shell">
+    <div class="log-toolbar">
+        <div class="log-title">
+            <span id="status-dot" class="status-dot"></span>
+            系统日志 (System Logs)
+        </div>
+        <div class="log-actions">
+            <select id="levelFilter">
+                <option value="ALL">ALL</option>
+                <option value="INFO">INFO</option>
+                <option value="WARNING">WARNING</option>
+                <option value="ERROR">ERROR</option>
+            </select>
+            <button class="btn-clear" onclick="clearLogs()">清空</button>
+            <button onclick="window.location.href='/'">返回主页</button>
+        </div>
+    </div>
+    <div id="terminal"></div>
+    <button class="scroll-to-bottom" id="scrollButton" onclick="scrollToBottom()">
+        ⬇️ 回到底部
+    </button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ansi_up/5.1.0/ansi_up.min.js"></script>
+<script>
+    const terminal = document.getElementById('terminal');
+    const statusDot = document.getElementById('status-dot');
+    const scrollButton = document.getElementById('scrollButton');
+    const levelFilter = document.getElementById('levelFilter');
+    const ansiUp = new AnsiUp();
+
+    let ws = null;
+    let isAutoScroll = true;
+    let reconnectTimer = null;
+
+    function connect() {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = '/login';
+            return;
+        }
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/logs?token=${encodeURIComponent(token)}`;
+
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+            statusDot.className = 'status-dot connected';
+            appendLog('\x1b[32m[Client] 已连接日志流。\x1b[0m');
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+            }
+        };
+
+        ws.onmessage = (event) => {
+            appendLog(event.data);
+        };
+
+        ws.onclose = () => {
+            statusDot.className = 'status-dot disconnected';
+            appendLog('\x1b[31m[Client] 连接已断开，3 秒后重试...\x1b[0m');
+            reconnectTimer = setTimeout(connect, 3000);
+        };
+
+        ws.onerror = (err) => {
+            console.error('WS Error:', err);
+        };
+    }
+
+    function getLogLevel(text) {
+        if (text.includes('CRITICAL')) return 'CRITICAL';
+        if (text.includes('ERROR')) return 'ERROR';
+        if (text.includes('WARNING')) return 'WARNING';
+        if (text.includes('INFO')) return 'INFO';
+        if (text.includes('DEBUG')) return 'DEBUG';
+        return 'INFO';
+    }
+
+    function shouldShow(level) {
+        const filter = levelFilter.value;
+        if (filter === 'ALL') return true;
+        if (filter === 'ERROR') return level === 'ERROR' || level === 'CRITICAL';
+        return level === filter;
+    }
+
+    function appendLog(text) {
+        const level = getLogLevel(text);
+        const html = ansiUp.ansi_to_html(text);
+        const div = document.createElement('div');
+        div.className = 'log-entry';
+        div.dataset.level = level;
+        div.innerHTML = html;
+        div.style.display = shouldShow(level) ? 'block' : 'none';
+        terminal.appendChild(div);
+
+        if (terminal.childElementCount > 2000) {
+            terminal.removeChild(terminal.firstChild);
+        }
+
+        if (isAutoScroll) {
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+    }
+
+    function clearLogs() {
+        terminal.innerHTML = '';
+    }
+
+    function updateAutoScroll() {
+        const distance = terminal.scrollHeight - terminal.scrollTop - terminal.clientHeight;
+        isAutoScroll = distance < 50;
+        if (isAutoScroll) {
+            scrollButton.classList.remove('show');
+        } else {
+            scrollButton.classList.add('show');
+        }
+    }
+
+    function scrollToBottom() {
+        terminal.scrollTop = terminal.scrollHeight;
+        isAutoScroll = true;
+        scrollButton.classList.remove('show');
+    }
+
+    terminal.addEventListener('scroll', updateAutoScroll);
+
+    levelFilter.addEventListener('change', () => {
+        const entries = terminal.querySelectorAll('.log-entry');
+        entries.forEach((entry) => {
+            const level = entry.dataset.level || 'INFO';
+            entry.style.display = shouldShow(level) ? 'block' : 'none';
+        });
+    });
+
+    connect();
+</script>
+{% endblock %}
