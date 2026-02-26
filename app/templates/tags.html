@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@yaireo/tagify/dist/tagify.css">
 <style>
     .tags-layout {
         display: grid;
@@ -37,6 +36,21 @@
         padding-right: 4px;
     }
 
+    .group-search-input {
+        background: rgba(8, 14, 22, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 8px 10px;
+        color: var(--text);
+        font-size: 12px;
+        outline: none;
+    }
+
+    .group-search-meta {
+        color: var(--muted);
+        font-size: 11px;
+    }
+
     .group-item {
         padding: 10px 12px;
         border-radius: 12px;
@@ -56,6 +70,23 @@
     .group-item:hover {
         background: rgba(255, 255, 255, 0.08);
         transform: translateX(2px);
+    }
+
+    .group-item-title {
+        font-size: 13px;
+        color: var(--text);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .group-item-sub {
+        margin-top: 2px;
+        font-size: 11px;
+        color: var(--muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .group-create {
@@ -106,27 +137,88 @@
         flex-wrap: wrap;
     }
 
-    .tagify {
+    .tags-textarea {
         background: rgba(8, 14, 22, 0.85);
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 14px;
         padding: 12px;
         min-height: 360px;
-    }
-
-    .tagify__tag {
-        margin: 6px 6px 0 0;
-    }
-
-    .tagify__input {
+        width: 100%;
+        resize: vertical;
         color: var(--text);
         font-size: 13px;
         font-family: "JetBrains Mono", "Fira Code", monospace;
+        line-height: 1.5;
+        outline: none;
     }
 
     .hint {
         font-size: 12px;
         color: var(--muted);
+    }
+
+    .alias-panel {
+        margin-top: 4px;
+        padding-top: 10px;
+        border-top: 1px dashed rgba(255, 255, 255, 0.12);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .alias-controls {
+        display: grid;
+        grid-template-columns: 180px 1fr 1fr auto;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .alias-controls input,
+    .alias-controls select {
+        background: rgba(8, 14, 22, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 9px 10px;
+        color: var(--text);
+        font-size: 13px;
+        outline: none;
+    }
+
+    .alias-list {
+        max-height: 220px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding-right: 2px;
+    }
+
+    .alias-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.04);
+    }
+
+    .alias-item code {
+        font-family: "JetBrains Mono", "Fira Code", monospace;
+        font-size: 12px;
+    }
+
+    .alias-meta {
+        font-size: 11px;
+        color: var(--muted);
+        margin-left: 8px;
+    }
+
+    .alias-empty {
+        color: var(--muted);
+        font-size: 12px;
+        padding: 6px 2px;
     }
 
     .toast {
@@ -164,6 +256,10 @@
         .tags-layout {
             grid-template-columns: 1fr;
         }
+
+        .alias-controls {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 {% endblock %}
@@ -175,6 +271,8 @@
             <span>标签组列表</span>
             <button class="btn" id="refreshBtn">刷新</button>
         </div>
+        <input id="groupSearchInput" class="group-search-input" type="text" placeholder="搜索群名或 chat_id">
+        <div class="group-search-meta" id="groupSearchMeta">显示 0 / 0</div>
         <div class="group-list" id="groupList"></div>
         <div class="group-create">
             <input id="newGroupName" type="text" placeholder="新组名称">
@@ -192,8 +290,26 @@
                 <button class="btn btn-danger" id="deleteGroupBtn">删除</button>
             </div>
         </div>
-        <input id="tagsInput" placeholder="输入标签后回车">
+        <textarea id="tagsInput" class="tags-textarea" placeholder="一行一个标签，或使用逗号分隔"></textarea>
         <div class="hint">支持 #tag 或 tag，保存时会自动去重并转为小写。</div>
+        <div class="alias-panel">
+            <div class="panel-header">
+                <span>标签重命名规则（A = B）</span>
+                <button class="btn" id="refreshAliasBtn">刷新规则</button>
+            </div>
+            <div class="alias-controls">
+                <select id="aliasScope">
+                    <option value="chat">当前群组规则</option>
+                    <option value="global">全局规则</option>
+                    <option value="effective">当前群组生效规则(只读)</option>
+                </select>
+                <input id="aliasOldTag" type="text" placeholder="旧标签 A">
+                <input id="aliasNewTag" type="text" placeholder="新标签 B">
+                <button class="btn btn-primary" id="saveAliasBtn">保存规则</button>
+            </div>
+            <div class="hint" id="aliasHint">提示：群组规则按当前选中的群组 ID 生效。</div>
+            <div class="alias-list" id="aliasList"></div>
+        </div>
     </section>
 </div>
 
@@ -201,25 +317,28 @@
 {% endblock %}
 
 {% block extra_script %}
-<script src="https://cdn.jsdelivr.net/npm/@yaireo/tagify/dist/tagify.min.js"></script>
 <script>
     const TOKEN_KEY = 'token';
     let groups = [];
     let currentGroupName = '';
     let originalGroupName = '';
     let isNewGroup = false;
+    let groupSearchKeyword = '';
+    let targetMetaByToken = {};
 
     const groupList = document.getElementById('groupList');
+    const groupSearchInput = document.getElementById('groupSearchInput');
+    const groupSearchMeta = document.getElementById('groupSearchMeta');
     const groupNameInput = document.getElementById('groupNameInput');
     const currentGroupSub = document.getElementById('currentGroupSub');
     const toast = document.getElementById('toast');
-
-    const tagify = new Tagify(document.getElementById('tagsInput'), {
-        editTags: 1,
-        delimiters: /[,\n]+/,
-        maxTags: 5000,
-        dropdown: { enabled: 0 }
-    });
+    const aliasScope = document.getElementById('aliasScope');
+    const aliasOldTagInput = document.getElementById('aliasOldTag');
+    const aliasNewTagInput = document.getElementById('aliasNewTag');
+    const aliasList = document.getElementById('aliasList');
+    const aliasHint = document.getElementById('aliasHint');
+    const saveAliasBtn = document.getElementById('saveAliasBtn');
+    const refreshAliasBtn = document.getElementById('refreshAliasBtn');
 
     function showToast(message) {
         toast.textContent = message;
@@ -238,6 +357,349 @@
 
     function normalizeTag(raw) {
         return String(raw || '').trim().replace(/^#+/, '').toLowerCase();
+    }
+
+    function parseGroupChatToken(raw) {
+        const token = String(raw || '').trim();
+        return /^-?\d+$/.test(token) ? token : null;
+    }
+
+    function getGroupDisplayMeta(group) {
+        const name = String(group?.name || '').trim();
+        const chatToken = parseGroupChatToken(name);
+        if (!chatToken) {
+            return { title: name || '未命名标签组', subtitle: '自定义标签组' };
+        }
+        const meta = targetMetaByToken[chatToken] || null;
+        const title = String(meta?.title || '').trim() || chatToken;
+        const type = String(meta?.chat_type || '').trim();
+        const subtitle = type ? `${chatToken} · ${type}` : chatToken;
+        return { title, subtitle };
+    }
+
+    function renderGroupSearchMeta(shown, total) {
+        groupSearchMeta.textContent = `显示 ${shown} / ${total}`;
+    }
+
+    function matchesGroupSearch(group, keyword) {
+        if (!keyword) return true;
+        const meta = getGroupDisplayMeta(group);
+        const haystack = `${group?.name || ''} ${meta.title} ${meta.subtitle}`.toLowerCase();
+        return haystack.includes(keyword);
+    }
+
+    function createLocalTagify(inputEl) {
+        let tags = [];
+        const listeners = { change: [] };
+
+        function normalizeAndDedupe(rawList) {
+            const seen = new Set();
+            const out = [];
+            rawList.forEach((item) => {
+                const cleaned = normalizeTag(item);
+                if (!cleaned || seen.has(cleaned)) return;
+                seen.add(cleaned);
+                out.push(cleaned);
+            });
+            return out;
+        }
+
+        function parseInput(raw) {
+            return normalizeAndDedupe(String(raw || '').split(/[\n\r,，;\t ]+/));
+        }
+
+        function emitChange() {
+            listeners.change.forEach((fn) => {
+                try {
+                    fn();
+                } catch (_) {
+                    // ignore listener errors
+                }
+            });
+        }
+
+        function render() {
+            inputEl.value = tags.join('\n');
+        }
+
+        inputEl.addEventListener('input', () => {
+            tags = parseInput(inputEl.value);
+            emitChange();
+        });
+        inputEl.addEventListener('blur', () => {
+            tags = parseInput(inputEl.value);
+            render();
+            emitChange();
+        });
+
+        return {
+            get value() {
+                return tags.map((value) => ({ value }));
+            },
+            removeAllTags() {
+                tags = [];
+                render();
+                emitChange();
+            },
+            addTags(list) {
+                tags = normalizeAndDedupe(Array.isArray(list) ? list : []);
+                render();
+                emitChange();
+            },
+            on(eventName, callback) {
+                if (!listeners[eventName]) listeners[eventName] = [];
+                listeners[eventName].push(callback);
+            }
+        };
+    }
+
+    const tagify = createLocalTagify(document.getElementById('tagsInput'));
+
+    async function loadTargetMeta() {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return false;
+        }
+        const resp = await fetch('/api/tools/targets', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return false;
+        }
+        if (!resp.ok) {
+            targetMetaByToken = {};
+            return true;
+        }
+        const payload = await resp.json().catch(() => ({}));
+        const next = {};
+        const rows = Array.isArray(payload?.targets) ? payload.targets : [];
+        rows.forEach((row) => {
+            const tokenValue = String(row?.token || '').trim();
+            if (!tokenValue) return;
+            next[tokenValue] = {
+                title: String(row?.title || '').trim(),
+                chat_type: String(row?.chat_type || '').trim(),
+            };
+        });
+        targetMetaByToken = next;
+        return true;
+    }
+
+    function resolveCurrentChatId() {
+        const raw = String(originalGroupName || currentGroupName || groupNameInput.value || '').trim();
+        if (!/^-?\d+$/.test(raw)) {
+            return null;
+        }
+        return Number(raw);
+    }
+
+    function updateAliasHint() {
+        const scope = aliasScope.value;
+        const chatId = resolveCurrentChatId();
+        if (scope === 'global') {
+            aliasHint.textContent = '当前为全局规则：对所有群组生效（冲突时全局优先）。';
+            return;
+        }
+        if (scope === 'effective') {
+            if (chatId === null) {
+                aliasHint.textContent = '当前标签组名不是群组 ID，无法查看群组生效规则。';
+            } else {
+                aliasHint.textContent = `当前为生效规则（只读）：chat_id=${chatId}，已合并群组+全局。`;
+            }
+            return;
+        }
+        if (chatId === null) {
+            aliasHint.textContent = '当前标签组名不是群组 ID，无法设置群组规则。请切换全局规则或选择群组 ID 标签组。';
+        } else {
+            aliasHint.textContent = `当前为群组规则：仅对 chat_id=${chatId} 生效。`;
+        }
+    }
+
+    function renderAliasRules(rules) {
+        aliasList.innerHTML = '';
+        if (!Array.isArray(rules) || !rules.length) {
+            const empty = document.createElement('div');
+            empty.className = 'alias-empty';
+            empty.textContent = '暂无规则';
+            aliasList.appendChild(empty);
+            return;
+        }
+
+        const scope = aliasScope.value;
+        rules.forEach((rule) => {
+            const row = document.createElement('div');
+            row.className = 'alias-item';
+
+            const left = document.createElement('div');
+            const code = document.createElement('code');
+            code.textContent = `#${rule.old_tag}=#${rule.new_tag}`;
+            left.appendChild(code);
+            if (rule.source) {
+                const meta = document.createElement('span');
+                meta.className = 'alias-meta';
+                meta.textContent = `来源: ${rule.source}`;
+                left.appendChild(meta);
+            }
+            row.appendChild(left);
+
+            if (scope !== 'effective') {
+                const del = document.createElement('button');
+                del.className = 'btn btn-danger';
+                del.textContent = '删除';
+                del.onclick = () => deleteAliasRule(rule.old_tag);
+                row.appendChild(del);
+            }
+            aliasList.appendChild(row);
+        });
+    }
+
+    function setAliasEditorReadOnly(readonly) {
+        aliasOldTagInput.disabled = readonly;
+        aliasNewTagInput.disabled = readonly;
+        saveAliasBtn.disabled = readonly;
+    }
+
+    async function loadAliasRules() {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+        const scope = aliasScope.value;
+        const params = new URLSearchParams();
+        params.set('scope', scope);
+        const chatId = resolveCurrentChatId();
+        if (scope !== 'global') {
+            if (chatId === null) {
+                setAliasEditorReadOnly(true);
+                renderAliasRules([]);
+                updateAliasHint();
+                return;
+            }
+            params.set('chat_id', String(chatId));
+        }
+
+        setAliasEditorReadOnly(scope === 'effective');
+        updateAliasHint();
+
+        const resp = await fetch(`/api/tags/aliases?${params.toString()}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const payload = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            renderAliasRules([]);
+            showToast(payload.detail || '加载重命名规则失败');
+            return;
+        }
+        renderAliasRules(payload.rules || []);
+    }
+
+    async function saveAliasRule() {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+        const scope = aliasScope.value;
+        if (scope === 'effective') {
+            showToast('生效规则为只读视图，不能直接保存');
+            return;
+        }
+
+        const oldTag = normalizeTag(aliasOldTagInput.value);
+        const newTag = normalizeTag(aliasNewTagInput.value);
+        if (!oldTag || !newTag) {
+            showToast('请输入旧标签和新标签');
+            return;
+        }
+        if (oldTag === newTag) {
+            showToast('旧标签与新标签相同，无需设置');
+            return;
+        }
+
+        const body = { scope, old_tag: oldTag, new_tag: newTag };
+        if (scope === 'chat') {
+            const chatId = resolveCurrentChatId();
+            if (chatId === null) {
+                showToast('当前标签组名不是群组 ID，无法设置群组规则');
+                return;
+            }
+            body.chat_id = chatId;
+        }
+
+        const resp = await fetch('/api/tags/aliases', {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const payload = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            showToast(payload.detail || '保存重命名规则失败');
+            return;
+        }
+        aliasOldTagInput.value = '';
+        aliasNewTagInput.value = '';
+        showToast(payload.message || '重命名规则已保存');
+        await loadAliasRules();
+    }
+
+    async function deleteAliasRule(oldTag) {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+        const scope = aliasScope.value;
+        if (scope === 'effective') {
+            showToast('生效规则为只读视图，不能删除');
+            return;
+        }
+        const clean = normalizeTag(oldTag);
+        if (!clean) {
+            return;
+        }
+        if (!confirm(`确认删除重命名规则 #${clean} ?`)) {
+            return;
+        }
+        const params = new URLSearchParams();
+        params.set('scope', scope);
+        params.set('old_tag', clean);
+        if (scope === 'chat') {
+            const chatId = resolveCurrentChatId();
+            if (chatId === null) {
+                showToast('当前标签组名不是群组 ID，无法删除群组规则');
+                return;
+            }
+            params.set('chat_id', String(chatId));
+        }
+        const resp = await fetch(`/api/tags/aliases?${params.toString()}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const payload = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            showToast(payload.detail || '删除重命名规则失败');
+            return;
+        }
+        showToast(payload.message || '重命名规则已删除');
+        await loadAliasRules();
     }
 
     function getTagValues() {
@@ -260,6 +722,9 @@
 
     function renderGroups() {
         groupList.innerHTML = '';
+        const keyword = groupSearchKeyword.trim().toLowerCase();
+        const filtered = groups.filter((group) => matchesGroupSearch(group, keyword));
+        renderGroupSearchMeta(filtered.length, groups.length);
         if (!groups.length) {
             const empty = document.createElement('div');
             empty.style.color = 'var(--muted)';
@@ -268,10 +733,29 @@
             groupList.appendChild(empty);
             return;
         }
-        groups.forEach((group) => {
+        if (!filtered.length) {
+            const empty = document.createElement('div');
+            empty.style.color = 'var(--muted)';
+            empty.style.fontSize = '12px';
+            empty.textContent = '没有匹配的标签组';
+            groupList.appendChild(empty);
+            return;
+        }
+        filtered.forEach((group) => {
             const item = document.createElement('div');
             item.className = 'group-item' + (originalGroupName === group.name ? ' active' : '');
-            item.textContent = group.name;
+
+            const meta = getGroupDisplayMeta(group);
+            const titleEl = document.createElement('div');
+            titleEl.className = 'group-item-title';
+            titleEl.textContent = meta.title;
+            item.appendChild(titleEl);
+
+            const subEl = document.createElement('div');
+            subEl.className = 'group-item-sub';
+            subEl.textContent = meta.subtitle;
+            item.appendChild(subEl);
+
             item.onclick = () => selectGroup(group.name);
             groupList.appendChild(item);
         });
@@ -287,13 +771,18 @@
         tagify.addTags(group.tags || []);
         updateSubTitle();
         renderGroups();
+        loadAliasRules();
     }
 
-    async function loadGroups() {
+    async function loadGroups({ refreshTargets = false } = {}) {
         const token = getToken();
         if (!token) {
             redirectToLogin();
             return;
+        }
+        if (refreshTargets || Object.keys(targetMetaByToken).length === 0) {
+            const ok = await loadTargetMeta();
+            if (!ok) return;
         }
         const resp = await fetch('/api/tags/groups', {
             headers: {
@@ -326,6 +815,7 @@
             groupNameInput.value = '';
             tagify.removeAllTags();
             updateSubTitle();
+            loadAliasRules();
         }
     }
 
@@ -418,7 +908,14 @@
 
     document.getElementById('saveGroupBtn').addEventListener('click', saveGroup);
     document.getElementById('deleteGroupBtn').addEventListener('click', deleteGroup);
-    document.getElementById('refreshBtn').addEventListener('click', loadGroups);
+    document.getElementById('refreshBtn').addEventListener('click', () => loadGroups({ refreshTargets: true }));
+    saveAliasBtn.addEventListener('click', saveAliasRule);
+    refreshAliasBtn.addEventListener('click', loadAliasRules);
+    aliasScope.addEventListener('change', loadAliasRules);
+    groupSearchInput.addEventListener('input', () => {
+        groupSearchKeyword = String(groupSearchInput.value || '');
+        renderGroups();
+    });
     document.getElementById('createGroupBtn').addEventListener('click', () => {
         const nameInput = document.getElementById('newGroupName');
         const name = nameInput.value.trim();
@@ -434,10 +931,11 @@
         tagify.removeAllTags();
         updateSubTitle();
         renderGroups();
+        loadAliasRules();
     });
 
     tagify.on('change', updateSubTitle);
 
-    loadGroups();
+    loadGroups({ refreshTargets: true });
 </script>
 {% endblock %}

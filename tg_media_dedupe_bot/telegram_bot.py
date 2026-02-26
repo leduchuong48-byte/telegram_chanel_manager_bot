@@ -27,6 +27,7 @@ from telegram.error import RetryAfter
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
+    ChatMemberHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -48,6 +49,9 @@ from tg_media_dedupe_bot.telethon_tags import (
 
 _RUNTIME_CONFIG: Config | None = None
 _RUNTIME_CONFIG_LOCK = threading.Lock()
+_MANAGED_CHAT_TYPES = {"group", "supergroup", "channel"}
+_BOT_MANAGE_STATUSES = {"administrator", "creator"}
+_INACTIVE_MEMBER_STATUSES = {"left", "kicked"}
 
 
 def set_runtime_config(config: Config) -> None:
@@ -907,6 +911,33 @@ def run_bot() -> None:
             log.exception("text_block_migrate_failed")
 
     _migrate_text_block_to_file()
+
+    def _bootstrap_managed_chat_registry() -> None:
+        try:
+            existing = db.list_managed_chats(active_only=False, manageable_only=False, limit=1)
+            if existing:
+                return
+            known_chat_ids = db.list_known_chat_ids(limit=2000)
+            if not known_chat_ids:
+                return
+            for chat_id in known_chat_ids:
+                db.upsert_managed_chat(
+                    chat_id=chat_id,
+                    title=str(chat_id),
+                    username="",
+                    chat_type="unknown",
+                    source="bootstrap_db",
+                    is_active=True,
+                    bot_status="unchecked",
+                    bot_can_manage=True,
+                    verified_at=0,
+                    verified_by="bootstrap_db",
+                )
+            log.info("managed_chats_bootstrapped count=%s", len(known_chat_ids))
+        except Exception:  # noqa: BLE001
+            log.exception("managed_chats_bootstrap_failed")
+
+    _bootstrap_managed_chat_registry()
     db_lock = asyncio.Lock()
     telethon_lock = asyncio.Lock()
     scan_tasks: dict[int, asyncio.Task] = {}
@@ -931,6 +962,93 @@ def run_bot() -> None:
     media_filter_states: dict[int, MediaFilterState] = {}
     login_states: dict[int, PendingLogin] = {}
     qr_tasks: dict[int, asyncio.Task] = {}
+
+    def _normalize_chat_type(chat: Any) -> str:
+        return str(getattr(chat, "type", "") or "").strip().lower()
+
+    def _is_trackable_chat(chat: Any) -> bool:
+        return _normalize_chat_type(chat) in _MANAGED_CHAT_TYPES
+
+    def _chat_title(chat: Any, fallback_chat_id: int) -> str:
+        title = str(getattr(chat, "title", "") or "").strip()
+        if title:
+            return title
+        first_name = str(getattr(chat, "first_name", "") or "").strip()
+        last_name = str(getattr(chat, "last_name", "") or "").strip()
+        full_name = " ".join(part for part in [first_name, last_name] if part)
+        if full_name:
+            return full_name
+        username = str(getattr(chat, "username", "") or "").strip().lstrip("@")
+        if username:
+            return f"@{username}"
+        return str(fallback_chat_id)
+
+    async def _upsert_managed_chat(
+        chat: Any,
+        *,
+        source: str,
+        is_active: bool = True,
+        bot_status: str | None = None,
+        bot_can_manage: bool | None = None,
+        verified_at: int | None = None,
+        verified_by: str | None = None,
+    ) -> None:
+        if chat is None or not _is_trackable_chat(chat):
+            return
+        chat_id_raw = getattr(chat, "id", None)
+        if not isinstance(chat_id_raw, int):
+            return
+        chat_id = int(chat_id_raw)
+        chat_type = _normalize_chat_type(chat)
+        title = _chat_title(chat, chat_id)
+        username = str(getattr(chat, "username", "") or "").strip().lstrip("@")
+        try:
+            async with db_lock:
+                db.upsert_managed_chat(
+                    chat_id=chat_id,
+                    title=title,
+                    username=username,
+                    chat_type=chat_type,
+                    source=source,
+                    is_active=is_active,
+                    bot_status=bot_status,
+                    bot_can_manage=bot_can_manage,
+                    verified_at=verified_at,
+                    verified_by=verified_by,
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("managed_chat_upsert_failed chat=%s source=%s error=%s", chat_id, source, exc)
+
+    async def _on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        _ = context
+        member_update = update.my_chat_member
+        if member_update is None:
+            return
+        chat = getattr(member_update, "chat", None)
+        if chat is None:
+            return
+        new_member = getattr(member_update, "new_chat_member", None)
+        status = str(getattr(new_member, "status", "") or "").strip().lower()
+        if not status:
+            status = "unknown"
+        is_active = status not in _INACTIVE_MEMBER_STATUSES
+        bot_can_manage = status in _BOT_MANAGE_STATUSES
+        await _upsert_managed_chat(
+            chat,
+            source="my_chat_member",
+            is_active=is_active,
+            bot_status=status,
+            bot_can_manage=bot_can_manage,
+            verified_at=int(time.time()),
+            verified_by="my_chat_member",
+        )
+
+    async def _track_message_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        _ = context
+        chat = update.effective_chat
+        if chat is None:
+            return
+        await _upsert_managed_chat(chat, source="message", is_active=True)
 
     async def _effective_mode(chat_id: int) -> tuple[bool, bool]:
         async with db_lock:
@@ -1551,7 +1669,7 @@ def run_bot() -> None:
             member = await context.bot.get_chat_member(chat.id, user.id)
         except Exception:  # noqa: BLE001
             return False
-        return str(getattr(member, "status", "")).lower() in {"administrator", "creator"}
+        return str(getattr(member, "status", "")).lower() in _BOT_MANAGE_STATUSES
 
     async def _ensure_private_chat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         chat = update.effective_chat
@@ -5273,6 +5391,11 @@ def run_bot() -> None:
     else:
         log.warning("ApplicationBuilder 缺少 post_init，无法执行启动初始化")
     application = builder.build()
+    application.add_handler(
+        ChatMemberHandler(_on_my_chat_member, chat_member_types=ChatMemberHandler.MY_CHAT_MEMBER),
+        group=-2,
+    )
+    application.add_handler(MessageHandler(filters.ALL, _track_message_chat), group=-1)
     application.add_handler(CommandHandler("ping", _cmd_ping))
     application.add_handler(CommandHandler("start", _cmd_start))
     application.add_handler(CommandHandler("help", _cmd_help))
@@ -5318,4 +5441,4 @@ def run_bot() -> None:
         sorted(config.allow_chat_ids) if config.allow_chat_ids else None,
         config.db_path,
     )
-    application.run_polling(stop_signals=())
+    application.run_polling(allowed_updates=Update.ALL_TYPES, stop_signals=())

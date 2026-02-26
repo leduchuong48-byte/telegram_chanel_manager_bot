@@ -20,6 +20,9 @@
   },
   "forwarding_rules": [],
   "bot": {
+    "target_chat_id": "",
+    "target_chat_ids": [],
+    "web_tg_session": "./sessions/webui",
     "dry_run": true,
     "delete_duplicates": false,
     "log_level": "INFO",

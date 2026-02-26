@@ -54,7 +54,7 @@ def create_app(
     app = FastAPI(
         title="Admin Panel API",
         description="Configuration management API for Telegram Media Dedup Bot",
-        version="1.0.0",
+        version="3.0",
     )
 
     # Add CORS middleware
@@ -224,11 +224,20 @@ def create_app(
     async def _setup_log_streaming() -> None:
         set_log_loop(asyncio.get_running_loop())
         root_logger = logging.getLogger()
-        handler_exists = any(isinstance(h, WebSocketLogHandler) for h in root_logger.handlers)
-        if not handler_exists:
+        handler: WebSocketLogHandler | None = None
+        for current in root_logger.handlers:
+            if isinstance(current, WebSocketLogHandler):
+                handler = current
+                break
+        if handler is None:
             handler = WebSocketLogHandler()
             root_logger.addHandler(handler)
-            app.state.log_handler = handler
+        app.state.log_handler = handler
+
+        for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+            target_logger = logging.getLogger(logger_name)
+            target_logger.propagate = True
+
         app.state.log_task = asyncio.create_task(log_broadcaster(log_manager))
 
     @app.on_event("shutdown")

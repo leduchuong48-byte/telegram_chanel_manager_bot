@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +22,15 @@ from telethon.errors import (
 
 from app.core.config_manager import ConfigManager
 from app.core.dependencies import get_current_user
+from app.core.telethon_runtime import (
+    bootstrap_web_session,
+    get_api_credentials,
+    get_bot_config,
+    map_telethon_exception,
+    resolve_web_session_path,
+    safe_disconnect,
+    web_telethon_lock,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +43,6 @@ SESSION_TTL_SECONDS = 10 * 60
 
 @dataclass
 class PendingSession:
-    client: TelegramClient
     phone_code_hash: str
     created_at: float
     needs_password: bool = False
@@ -80,17 +87,9 @@ def _normalize_phone(phone: str) -> str:
 
 
 def _resolve_session_path(config: dict[str, Any]) -> Path:
-    bot_config = config.get("bot", {}) if isinstance(config, dict) else {}
-    if not isinstance(bot_config, dict):
-        bot_config = {}
-    raw = str(bot_config.get("tg_session") or "").strip()
-    if not raw:
-        raw = os.getenv("TG_SESSION", "").strip() or "./sessions/user"
-    path = Path(raw).expanduser()
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
+    bot_config = get_bot_config(config)
+    path = resolve_web_session_path(bot_config)
+    bootstrap_web_session(bot_config, path)
     return path
 
 
@@ -101,28 +100,7 @@ def _session_file_candidates(session_path: Path) -> list[Path]:
 
 
 def _get_api_credentials(config: dict[str, Any]) -> tuple[int, str]:
-    bot_config = config.get("bot", {}) if isinstance(config, dict) else {}
-    if not isinstance(bot_config, dict):
-        bot_config = {}
-
-    api_id_raw = bot_config.get("api_id") or os.getenv("TG_API_ID", "")
-    api_hash = str(bot_config.get("api_hash") or os.getenv("TG_API_HASH", "")).strip()
-
-    api_id: int | None = None
-    if isinstance(api_id_raw, int):
-        api_id = api_id_raw
-    elif isinstance(api_id_raw, str) and api_id_raw.strip():
-        try:
-            api_id = int(api_id_raw.strip())
-        except ValueError:
-            api_id = None
-
-    if api_id is None or not api_hash:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="缺少 api_id 或 api_hash，请先在 Bot 设置中完善",
-        )
-    return api_id, api_hash
+    return get_api_credentials(get_bot_config(config))
 
 
 async def _cleanup_expired(now: float) -> None:
@@ -132,12 +110,7 @@ async def _cleanup_expired(now: float) -> None:
             if now - pending.created_at > SESSION_TTL_SECONDS:
                 expired.append(phone)
         for phone in expired:
-            pending = _PENDING_SESSIONS.pop(phone, None)
-            if pending is not None:
-                try:
-                    await pending.client.disconnect()
-                except Exception:
-                    pass
+            _PENDING_SESSIONS.pop(phone, None)
 
 
 def _build_client(config: dict[str, Any]) -> TelegramClient:
@@ -159,22 +132,28 @@ async def session_status(
 
     client = _build_client(config)
     try:
-        await client.connect()
-        authorized = await client.is_user_authorized()
-        if not authorized:
-            return {"connected": False}
-        me = await client.get_me()
-        return {
-            "connected": True,
-            "user_id": getattr(me, "id", None),
-            "username": getattr(me, "username", None),
-            "phone": getattr(me, "phone", None),
-        }
+        async with web_telethon_lock():
+            await client.connect()
+            authorized = await client.is_user_authorized()
+            if not authorized:
+                return {"connected": False}
+            me = await client.get_me()
+            return {
+                "connected": True,
+                "user_id": getattr(me, "id", None),
+                "username": getattr(me, "username", None),
+                "phone": getattr(me, "phone", None),
+            }
     except Exception as exc:
-        logger.warning("session_status_failed error=%s", exc)
+        mapped = map_telethon_exception(exc, default_detail="读取会话状态失败")
+        if mapped.status_code == status.HTTP_409_CONFLICT:
+            logger.info("session_status_skipped reason=database_locked")
+        else:
+            logger.warning("session_status_failed error=%s", exc)
         return {"connected": False}
     finally:
-        await client.disconnect()
+        async with web_telethon_lock():
+            await safe_disconnect(client)
 
 
 @router.post("/send_code")
@@ -192,19 +171,14 @@ async def send_code(
     config = config_manager.get_config()
 
     async with _PENDING_LOCK:
-        existing = _PENDING_SESSIONS.pop(phone, None)
-    if existing is not None:
-        try:
-            await existing.client.disconnect()
-        except Exception:
-            pass
+        _PENDING_SESSIONS.pop(phone, None)
 
     client = _build_client(config)
     try:
-        await client.connect()
-        sent = await client.send_code_request(phone)
+        async with web_telethon_lock():
+            await client.connect()
+            sent = await client.send_code_request(phone)
         pending = PendingSession(
-            client=client,
             phone_code_hash=sent.phone_code_hash,
             created_at=time.time(),
         )
@@ -212,12 +186,13 @@ async def send_code(
             _PENDING_SESSIONS[phone] = pending
         return {"success": True, "phone_code_hash": sent.phone_code_hash, "message": "验证码已发送"}
     except PhoneNumberInvalidError:
-        await client.disconnect()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="手机号无效")
     except Exception as exc:
-        await client.disconnect()
         logger.error("send_code_failed error=%s", exc)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="发送验证码失败")
+        raise map_telethon_exception(exc, default_detail="发送验证码失败") from exc
+    finally:
+        async with web_telethon_lock():
+            await safe_disconnect(client)
 
 
 @router.post("/login")
@@ -240,15 +215,19 @@ async def login(
     if payload.phone_code_hash != pending.phone_code_hash:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="验证码哈希不匹配")
 
+    config_manager = _get_config_manager()
+    config = config_manager.get_config()
+    client = _build_client(config)
     preserve_pending = False
     try:
-        await pending.client.connect()
-        await pending.client.sign_in(
-            phone=phone,
-            code=code,
-            phone_code_hash=pending.phone_code_hash,
-        )
-        me = await pending.client.get_me()
+        async with web_telethon_lock():
+            await client.connect()
+            await client.sign_in(
+                phone=phone,
+                code=code,
+                phone_code_hash=pending.phone_code_hash,
+            )
+            me = await client.get_me()
         return {
             "success": True,
             "need_password": False,
@@ -266,14 +245,13 @@ async def login(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="验证码已过期，请重新发送")
     except Exception as exc:
         logger.error("login_failed error=%s", exc)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="登录失败")
+        raise map_telethon_exception(exc, default_detail="登录失败") from exc
     finally:
-        if preserve_pending or (pending is not None and pending.needs_password):
-            await pending.client.disconnect()
-        else:
+        async with web_telethon_lock():
+            await safe_disconnect(client)
+        if not preserve_pending:
             async with _PENDING_LOCK:
                 _PENDING_SESSIONS.pop(phone, None)
-            await pending.client.disconnect()
 
 
 @router.post("/2fa")
@@ -293,11 +271,15 @@ async def login_2fa(
     if pending is None or not pending.needs_password:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="未检测到需要二次验证的会话")
 
+    config_manager = _get_config_manager()
+    config = config_manager.get_config()
+    client = _build_client(config)
     preserve_pending = False
     try:
-        await pending.client.connect()
-        await pending.client.sign_in(password=payload.password.strip())
-        me = await pending.client.get_me()
+        async with web_telethon_lock():
+            await client.connect()
+            await client.sign_in(password=payload.password.strip())
+            me = await client.get_me()
         return {
             "success": True,
             "message": "二次验证成功",
@@ -308,12 +290,13 @@ async def login_2fa(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="二次验证密码错误")
     except Exception as exc:
         logger.error("login_2fa_failed error=%s", exc)
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="二次验证失败")
+        raise map_telethon_exception(exc, default_detail="二次验证失败") from exc
     finally:
+        async with web_telethon_lock():
+            await safe_disconnect(client)
         if not preserve_pending:
             async with _PENDING_LOCK:
                 _PENDING_SESSIONS.pop(phone, None)
-        await pending.client.disconnect()
 
 
 @router.post("/logout")
@@ -326,14 +309,7 @@ async def logout(
     session_path = _resolve_session_path(config)
 
     async with _PENDING_LOCK:
-        pending_items = list(_PENDING_SESSIONS.items())
         _PENDING_SESSIONS.clear()
-
-    for _, pending in pending_items:
-        try:
-            await pending.client.disconnect()
-        except Exception:
-            pass
 
     for candidate in _session_file_candidates(session_path):
         if candidate.exists():

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from app.core.config_manager import ConfigManager
 from app.core.dependencies import get_current_user
 from app.core.models import MessageResponse
+from app.core.telethon_runtime import get_target_chat_tokens, normalize_target_chat_tokens
 
 router = APIRouter(prefix="/api/bot_settings", tags=["bot_settings"])
 
@@ -66,6 +67,9 @@ async def get_bot_settings(
         "api_id": bot_config.get("api_id", ""),
         "api_hash": bot_config.get("api_hash", ""),
         "target_chat_id": bot_config.get("target_chat_id", ""),
+        "target_chat_ids": get_target_chat_tokens(bot_config),
+        "target_chat_ids_text": "\n".join(get_target_chat_tokens(bot_config)),
+        "web_tg_session": bot_config.get("web_tg_session", ""),
         "admin_id": bot_config.get("admin_id", ""),
     }
     return BotSettingsResponse(data=data)
@@ -77,6 +81,8 @@ async def update_bot_settings(
     api_id: Annotated[str | None, Form(None)] = None,
     api_hash: Annotated[str | None, Form(None)] = None,
     target_chat_id: Annotated[str | None, Form(None)] = None,
+    target_chat_ids: Annotated[str | None, Form(None)] = None,
+    web_tg_session: Annotated[str | None, Form(None)] = None,
     admin_id: Annotated[str | None, Form(None)] = None,
     _: Annotated[str, Depends(get_current_user)] = None,
 ) -> MessageResponse:
@@ -99,8 +105,15 @@ async def update_bot_settings(
         bot_config["api_id"] = _clean(api_id)
     if api_hash is not None:
         bot_config["api_hash"] = _clean(api_hash)
-    if target_chat_id is not None:
+    if target_chat_ids is not None:
+        tokens = normalize_target_chat_tokens(_clean(target_chat_ids))
+        bot_config["target_chat_ids"] = tokens
+        bot_config["target_chat_id"] = tokens[0] if tokens else ""
+    elif target_chat_id is not None:
         bot_config["target_chat_id"] = _clean(target_chat_id)
+        bot_config["target_chat_ids"] = normalize_target_chat_tokens(bot_config["target_chat_id"])
+    if web_tg_session is not None:
+        bot_config["web_tg_session"] = _clean(web_tg_session)
     if admin_id is not None:
         bot_config["admin_id"] = _clean(admin_id)
 

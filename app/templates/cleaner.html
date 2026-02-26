@@ -177,7 +177,8 @@
             showToast(data.detail || '删除失败');
             return;
         }
-        showToast(`已删除 ${data.deleted || 0} 条消息`);
+        const deleted = Number(data.total_deleted ?? data.deleted ?? 0);
+        showToast(`已删除 ${deleted} 条消息`);
     }
 
     async function deleteByType() {
@@ -213,7 +214,9 @@
             showToast(data.detail || '清理失败');
             return;
         }
-        showToast(`已删除 ${data.deleted || 0} 条消息（扫描 ${data.scanned || 0} 条）`);
+        const deleted = Number(data.total_deleted ?? data.deleted ?? 0);
+        const scanned = Number(data.total_scanned ?? data.scanned ?? 0);
+        showToast(`已删除 ${deleted} 条消息（扫描 ${scanned} 条）`);
     }
 
     document.getElementById('batchDeleteBtn').addEventListener('click', batchDelete);

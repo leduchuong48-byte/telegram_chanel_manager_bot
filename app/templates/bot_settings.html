@@ -38,7 +38,8 @@
         letter-spacing: 0.4px;
     }
 
-    .form-field input {
+    .form-field input,
+    .form-field textarea {
         background: rgba(8, 14, 22, 0.85);
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 14px;
@@ -49,7 +50,13 @@
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
-    .form-field input:focus {
+    .form-field textarea {
+        min-height: 104px;
+        resize: vertical;
+    }
+
+    .form-field input:focus,
+    .form-field textarea:focus {
         border-color: rgba(10, 132, 255, 0.6);
         box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.15);
     }
@@ -99,8 +106,14 @@
             <input id="api_hash" type="password" placeholder="例如：abcd1234">
         </div>
         <div class="form-field">
-            <label for="target_chat_id">目标群组 ID</label>
-            <input id="target_chat_id" type="text" placeholder="例如：-1001234567890">
+            <label for="target_chat_ids">目标群组列表</label>
+            <textarea id="target_chat_ids" placeholder="-1001234567890&#10;-1009876543210&#10;@channel_username"></textarea>
+            <div class="hint">支持换行 / 逗号 / 分号分隔；留空时自动发现当前 Web 登录账号可管理的群组/频道。</div>
+        </div>
+        <div class="form-field">
+            <label for="web_tg_session">Web Telethon Session</label>
+            <input id="web_tg_session" type="text" placeholder="建议：./sessions/webui">
+            <div class="hint">用于 WebUI 维护工具，建议与运行中 Bot 的 TG_SESSION 分离。</div>
         </div>
         <div class="form-field">
             <label for="admin_id">管理员 ID</label>
@@ -120,7 +133,8 @@
         bot_token: document.getElementById('bot_token'),
         api_id: document.getElementById('api_id'),
         api_hash: document.getElementById('api_hash'),
-        target_chat_id: document.getElementById('target_chat_id'),
+        target_chat_ids: document.getElementById('target_chat_ids'),
+        web_tg_session: document.getElementById('web_tg_session'),
         admin_id: document.getElementById('admin_id')
     };
 
@@ -167,7 +181,8 @@
         fields.bot_token.value = data.bot_token || '';
         fields.api_id.value = data.api_id ?? '';
         fields.api_hash.value = data.api_hash ?? '';
-        fields.target_chat_id.value = data.target_chat_id ?? '';
+        fields.target_chat_ids.value = data.target_chat_ids_text ?? '';
+        fields.web_tg_session.value = data.web_tg_session ?? '';
         fields.admin_id.value = data.admin_id ?? '';
     }
 

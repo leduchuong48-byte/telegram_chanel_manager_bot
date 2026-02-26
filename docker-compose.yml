@@ -1,11 +1,12 @@
 version: "3.9"
 
 services:
-  telegram_chanel_manager_bot:
+  telegram_mediachanel_manager_bot:
     build: .
-    image: telegram_chanel_manager_bot:2.2
-    container_name: telegram_chanel_manager_bot
-    restart: unless-stopped
+    image: telegram_mediachanel_manager_bot:3.0
+    container_name: telegram_mediachanel_manager_bot
+    restart: always
+    user: "${UID:-1000}:${GID:-1000}"
     env_file:
       - ./.env
     volumes:
@@ -13,8 +14,7 @@ services:
       - ./data:/app/data
       - ./sessions:/app/sessions
       - ./backups:/app/backups
-      - ./logs:/app/logs
     ports:
       - "1009:8000"
     environment:
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_LEVEL=INFO

@@ -3,7 +3,7 @@
     "enabled": true,
     "host": "0.0.0.0",
     "port": 8000,
-    "secret_key": "change-this-in-production"
+    "secret_key": "your-secret-key-change-in-production-12345"
   },
   "web_users": [
     {
@@ -20,16 +20,13 @@
   },
   "forwarding_rules": [],
   "bot": {
-    "bot_token": "",
-    "api_id": "",
-    "api_hash": "",
     "target_chat_id": "",
-    "admin_id": "",
+    "target_chat_ids": [],
+    "web_tg_session": "./sessions/webui",
     "dry_run": true,
     "delete_duplicates": false,
     "log_level": "INFO",
-    "tag_count": 3,
-    "tag_build_limit": 0
+    "tag_count": 3
   },
   "database": {
     "path": "./data/bot.db"

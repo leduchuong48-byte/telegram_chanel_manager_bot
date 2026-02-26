@@ -79,6 +79,8 @@ class ConfigManager:
                 "api_id": "",
                 "api_hash": "",
                 "target_chat_id": "",
+                "target_chat_ids": [],
+                "web_tg_session": "./sessions/webui",
                 "admin_id": "",
                 "dry_run": True,
                 "delete_duplicates": False,

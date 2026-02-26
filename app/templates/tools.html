@@ -30,6 +30,26 @@
         line-height: 1.5;
     }
 
+    .target-card {
+        margin-bottom: 18px;
+    }
+
+    .target-row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .target-select {
+        flex: 1;
+        min-height: 38px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(8, 14, 22, 0.88);
+        color: var(--text);
+        padding: 0 10px;
+    }
+
     .btn-danger {
         color: #ff8b8b;
         border: 1px solid rgba(255, 59, 48, 0.3);
@@ -62,6 +82,17 @@
     }
 </style>
 
+<div class="tool-card target-card">
+    <div class="card-title">维护目标群组</div>
+    <div class="card-desc" id="targetSummary">正在加载可维护群组...</div>
+    <div class="target-row">
+        <select class="target-select" id="targetSelect">
+            <option value="">全部可维护群组</option>
+        </select>
+        <button class="btn" id="refreshTargetsBtn">刷新</button>
+    </div>
+</div>
+
 <div class="tools-grid">
     <div class="tool-card">
         <div class="card-title">修复标签计数</div>
@@ -89,6 +120,9 @@
 <script>
     const TOKEN_KEY = 'token';
     const toast = document.getElementById('toast');
+    const targetSelect = document.getElementById('targetSelect');
+    const targetSummary = document.getElementById('targetSummary');
+    const refreshTargetsBtn = document.getElementById('refreshTargetsBtn');
 
     function showToast(message) {
         toast.textContent = message;
@@ -105,18 +139,103 @@
         window.location.href = '/login';
     }
 
+    function getSelectedTarget() {
+        const value = (targetSelect.value || '').trim();
+        return value || null;
+    }
+
+    function getSelectedTargetLabel() {
+        const option = targetSelect.options[targetSelect.selectedIndex];
+        return option ? option.textContent : '全部可维护群组';
+    }
+
+    function formatVerifySource(item) {
+        const by = (item.verified_by || '').trim();
+        if (!by) return '未校验';
+        if (by === 'my_chat_member') return '已校验:my_chat_member';
+        if (by === 'get_chat_member') return '已校验:getChatMember';
+        return `已校验:${by}`;
+    }
+
+    async function loadTargets(forceRefresh = false) {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            return;
+        }
+        const query = forceRefresh ? '?refresh=1' : '';
+        if (forceRefresh) {
+            targetSummary.textContent = '正在同步并刷新目标群组...';
+        }
+        const resp = await fetch(`/api/tools/targets${query}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (resp.status === 401) {
+            redirectToLogin();
+            return;
+        }
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            targetSummary.textContent = '加载目标群组失败';
+            showToast(data.detail || '加载目标群组失败');
+            return;
+        }
+
+        const targets = Array.isArray(data.targets) ? data.targets : [];
+        const manageableCount = Number(data.manageable_count || 0);
+        targetSelect.innerHTML = '';
+
+        const allOption = document.createElement('option');
+        allOption.value = '';
+        allOption.textContent = '全部可维护群组';
+        allOption.disabled = manageableCount === 0;
+        targetSelect.appendChild(allOption);
+
+        targets.forEach((item) => {
+            const option = document.createElement('option');
+            option.value = item.token || '';
+            const verify = formatVerifySource(item);
+            let status = `${verify} 待校验`;
+            if (item.bot_can_manage === false) {
+                status = `${verify} 不可维护:${item.bot_status || 'unknown'}`;
+            } else if (item.bot_status && item.bot_status !== 'unchecked') {
+                status = `${verify} 可维护:${item.bot_status}`;
+            }
+            option.textContent = `${item.title || item.token || '未命名'} [${item.token}] (${status})`;
+            option.disabled = item.bot_can_manage === false;
+            targetSelect.appendChild(option);
+        });
+
+        if (manageableCount > 0) {
+            targetSelect.value = '';
+            targetSummary.textContent = `发现 ${targets.length} 个群组/频道，可维护 ${manageableCount} 个。可选择单个群组执行维护，系统会在执行时再次校验 Bot 管理员权限。`;
+        } else {
+            targetSummary.textContent = '未发现 Bot 可维护的群组/频道，请确认 Bot 已加入并具备管理员权限。';
+            showToast('未发现可维护群组，请检查 Bot 权限');
+        }
+    }
+
     async function callTool(endpoint, confirmText, successText) {
         const token = getToken();
         if (!token) {
             redirectToLogin();
             return;
         }
-        if (confirmText && !confirm(confirmText)) {
+        const target = getSelectedTarget();
+        const targetLabel = getSelectedTargetLabel();
+        const message = target
+            ? `${confirmText}\n目标：${targetLabel}`
+            : `${confirmText}\n目标：全部可维护群组`;
+        if (confirmText && !confirm(message)) {
             return;
         }
         const resp = await fetch(endpoint, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ target })
         });
         if (resp.status === 401) {
             redirectToLogin();
@@ -139,5 +258,8 @@
     document.getElementById('reloadSystemBtn').addEventListener('click', () => {
         callTool('/api/tools/reload_system', '确认重置系统状态？', '已发送系统重置指令');
     });
+
+    refreshTargetsBtn.addEventListener('click', () => loadTargets(true));
+    loadTargets(false);
 </script>
 {% endblock %}

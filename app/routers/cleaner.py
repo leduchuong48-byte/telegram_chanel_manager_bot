@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,6 +12,14 @@ from telethon.errors import RPCError
 
 from app.core.config_manager import ConfigManager
 from app.core.dependencies import get_current_user
+from app.core.telethon_runtime import (
+    discover_dialog_targets,
+    get_bot_config,
+    get_target_chat_tokens,
+    map_telethon_exception,
+    open_web_client,
+    parse_target_chat_token,
+)
 from tg_media_dedupe_bot.telethon_scan import _resolve_entity as _resolve_entity_telethon
 
 logger = logging.getLogger(__name__)
@@ -46,83 +53,48 @@ def _get_config_manager() -> ConfigManager:
     return _config_manager
 
 
-def _get_bot_config(config: dict[str, Any]) -> dict[str, Any]:
-    bot_config = config.get("bot", {}) if isinstance(config, dict) else {}
-    if not isinstance(bot_config, dict):
-        bot_config = {}
-    return bot_config
+def _get_target_tokens(bot_config: dict[str, Any]) -> list[str]:
+    return get_target_chat_tokens(bot_config)
 
 
-def _parse_target_chat(bot_config: dict[str, Any]) -> tuple[str | None, int | None]:
-    raw = str(bot_config.get("target_chat_id") or "").strip()
-    if not raw:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="未配置 target_chat_id，请先在 Bot 设置中填写目标群组/频道",
-        )
-    if raw.lstrip("-").isdigit():
-        return None, int(raw)
-    return raw, None
-
-
-def _get_telethon_credentials(bot_config: dict[str, Any]) -> tuple[int, str, str]:
-    api_id_raw = bot_config.get("api_id") or os.getenv("TG_API_ID", "")
-    api_hash = str(bot_config.get("api_hash") or os.getenv("TG_API_HASH", "")).strip()
-    session = str(bot_config.get("tg_session") or os.getenv("TG_SESSION", "") or "./sessions/user").strip()
-
-    api_id: int | None = None
-    if isinstance(api_id_raw, int):
-        api_id = api_id_raw
-    elif isinstance(api_id_raw, str) and api_id_raw.strip():
+async def _resolve_target_entities(client: TelegramClient, tokens: list[str]) -> list[tuple[str, Any]]:
+    entities: list[tuple[str, Any]] = []
+    for token in tokens:
+        chat, bot_chat_id = parse_target_chat_token(token)
         try:
-            api_id = int(api_id_raw.strip())
-        except ValueError:
-            api_id = None
-
-    if api_id is None or not api_hash:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="缺少 api_id 或 api_hash，请先在 Bot 设置中完善",
-        )
-    return api_id, api_hash, session
-
-
-async def _build_client(bot_config: dict[str, Any]) -> TelegramClient:
-    api_id, api_hash, session = _get_telethon_credentials(bot_config)
-    client = TelegramClient(session, api_id, api_hash)
-    await client.connect()
-    if not await client.is_user_authorized():
-        await client.disconnect()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="未检测到 Telethon 用户账号 session，请先在账号管理中登录",
-        )
-    me = await client.get_me()
-    if getattr(me, "bot", False):
-        await client.disconnect()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="当前会话为 Bot 账号，无法执行清理",
-        )
-    return client
+            entity = await _resolve_entity_telethon(
+                client,
+                chat=chat,
+                bot_chat_id=bot_chat_id,
+                bot_chat_username=None,
+                allow_dialog_lookup=True,
+            )
+        except Exception as exc:
+            logger.warning("resolve_target_failed target=%s error=%s", token, exc)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"无法解析目标群组/频道：{token}",
+            ) from exc
+        entities.append((token, entity))
+    return entities
 
 
-async def _resolve_target_entity(client: TelegramClient, bot_config: dict[str, Any]) -> Any:
-    chat, bot_chat_id = _parse_target_chat(bot_config)
-    try:
-        return await _resolve_entity_telethon(
-            client,
-            chat=chat,
-            bot_chat_id=bot_chat_id,
-            bot_chat_username=None,
-            allow_dialog_lookup=True,
-        )
-    except Exception as exc:
-        logger.warning("resolve_target_failed error=%s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="无法解析目标群组/频道，请检查 target_chat_id",
-        ) from exc
+async def _resolve_targets(client: TelegramClient, bot_config: dict[str, Any]) -> list[tuple[str, Any]]:
+    tokens = _get_target_tokens(bot_config)
+    if tokens:
+        return await _resolve_target_entities(client, tokens)
+
+    targets = await discover_dialog_targets(client)
+    if targets:
+        return targets
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=(
+            "未配置 target_chat_ids，且自动发现不到可管理群组/频道；"
+            "请确认 Web 登录账号已加入目标群并具备管理员权限"
+        ),
+    )
 
 
 def _chunk_list(items: list[int], size: int = 100) -> list[list[int]]:
@@ -164,19 +136,48 @@ async def batch_delete(
 ) -> dict[str, Any]:
     """Delete the latest N messages."""
     config_manager = _get_config_manager()
-    bot_config = _get_bot_config(config_manager.get_config())
-    client = await _build_client(bot_config)
+    bot_config = get_bot_config(config_manager.get_config())
     try:
-        entity = await _resolve_target_entity(client, bot_config)
-        message_ids: list[int] = []
-        async for msg in client.iter_messages(entity, limit=payload.count):
-            msg_id = getattr(msg, "id", None)
-            if isinstance(msg_id, int) and msg_id > 0:
-                message_ids.append(msg_id)
-        deleted = await _delete_messages(client, entity, message_ids)
-        return {"success": True, "deleted": deleted, "requested": payload.count}
-    finally:
-        await client.disconnect()
+        async with open_web_client(
+            bot_config,
+            unauthorized_detail="未检测到 Web Telethon 用户会话，请先在账号管理中登录",
+            bot_session_detail="当前会话为 Bot 账号，无法执行清理",
+            connect_error_detail="连接 Telethon 会话失败",
+        ) as client:
+            targets = await _resolve_targets(client, bot_config)
+            results: list[dict[str, Any]] = []
+            total_deleted = 0
+            total_scanned = 0
+            for token, entity in targets:
+                message_ids: list[int] = []
+                async for msg in client.iter_messages(entity, limit=payload.count):
+                    msg_id = getattr(msg, "id", None)
+                    if isinstance(msg_id, int) and msg_id > 0:
+                        message_ids.append(msg_id)
+                deleted = await _delete_messages(client, entity, message_ids)
+                total_deleted += deleted
+                total_scanned += len(message_ids)
+                results.append(
+                    {
+                        "target": token,
+                        "requested": payload.count,
+                        "scanned": len(message_ids),
+                        "deleted": deleted,
+                    }
+                )
+            return {
+                "success": True,
+                "targets": len(results),
+                "scanned": total_scanned,
+                "deleted": total_deleted,
+                "total_scanned": total_scanned,
+                "total_deleted": total_deleted,
+                "results": results,
+            }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise map_telethon_exception(exc, default_detail="执行批量删除失败") from exc
 
 
 @router.post("/delete_by_type")
@@ -191,20 +192,49 @@ async def delete_by_type(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请选择需要清理的类型")
 
     config_manager = _get_config_manager()
-    bot_config = _get_bot_config(config_manager.get_config())
-    client = await _build_client(bot_config)
+    bot_config = get_bot_config(config_manager.get_config())
     try:
-        entity = await _resolve_target_entity(client, bot_config)
-        message_ids: list[int] = []
-        scanned = 0
-        async for msg in client.iter_messages(entity, limit=payload.limit):
-            scanned += 1
-            msg_id = getattr(msg, "id", None)
-            if not isinstance(msg_id, int) or msg_id <= 0:
-                continue
-            if _message_matches(msg, types):
-                message_ids.append(msg_id)
-        deleted = await _delete_messages(client, entity, message_ids)
-        return {"success": True, "deleted": deleted, "scanned": scanned}
-    finally:
-        await client.disconnect()
+        async with open_web_client(
+            bot_config,
+            unauthorized_detail="未检测到 Web Telethon 用户会话，请先在账号管理中登录",
+            bot_session_detail="当前会话为 Bot 账号，无法执行清理",
+            connect_error_detail="连接 Telethon 会话失败",
+        ) as client:
+            targets = await _resolve_targets(client, bot_config)
+            results: list[dict[str, Any]] = []
+            total_deleted = 0
+            total_scanned = 0
+            for token, entity in targets:
+                message_ids: list[int] = []
+                scanned = 0
+                async for msg in client.iter_messages(entity, limit=payload.limit):
+                    scanned += 1
+                    msg_id = getattr(msg, "id", None)
+                    if not isinstance(msg_id, int) or msg_id <= 0:
+                        continue
+                    if _message_matches(msg, types):
+                        message_ids.append(msg_id)
+                deleted = await _delete_messages(client, entity, message_ids)
+                total_deleted += deleted
+                total_scanned += scanned
+                results.append(
+                    {
+                        "target": token,
+                        "scanned": scanned,
+                        "matched": len(message_ids),
+                        "deleted": deleted,
+                    }
+                )
+            return {
+                "success": True,
+                "targets": len(results),
+                "scanned": total_scanned,
+                "deleted": total_deleted,
+                "total_scanned": total_scanned,
+                "total_deleted": total_deleted,
+                "results": results,
+            }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise map_telethon_exception(exc, default_detail="按类型删除失败") from exc

@@ -1,60 +1,100 @@
-# Telegram Chanel Manager Bot
+# Project Name
+
+![Cover or Demo](docs/cover.gif)
+
+[![Docker Pulls](https://img.shields.io/docker/pulls/leduchuong/telegram_mediachanel_manager_bot?logo=docker&label=Docker%20Pulls)](https://hub.docker.com/r/leduchuong/telegram_mediachanel_manager_bot)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Build: Passing](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](#)
+[![Platform: ARM64/AMD64](https://img.shields.io/badge/Platform-ARM64%2FAMD64-blue.svg)](#)
 
 [中文](README.md)
 
-Telegram Chanel Manager Bot is a `Telethon + FastAPI` project for Telegram channel/group operations, including media de-duplication, historical scanning, tag workflows, and web-based administration.
+> Better alternative to legacy-telegram-bots for E-ink devices.
+
+One sentence describing what this project does.
+
+## Why this tool?
+
+Tired of <slow workflow> and <manual retries>? This tool is built to remove the 3-second lag and frequent failure points that make demos and operations unreliable.
 
 ## Why This Project Is Useful (Pain Points)
 
-In multi-channel/group environments, duplicate media and noisy content accumulate quickly. Manual cleanup is costly and often inconsistent. Historical backfill and tag normalization are also hard to maintain with ad-hoc scripts. This project unifies monitoring, de-duplication, tagging, and configuration management into one workflow.
+- Pain point 1: The most error-prone or time-consuming part in the old workflow
+- Pain point 2: Cost/maintenance burden of existing solutions
+- Pain point 3: Delivery or collaboration bottlenecks
 
 ## What the Project Does (Features)
 
-- Real-time media de-duplication with delete/dry-run modes
-- Historical scan and batch processing via Telethon
-- Tag extraction, pin index generation, rebuild, and aliasing
-- Web admin panel with auth, config editing, and logs
-- SQLite-backed persistence for rules and runtime state
+- Core capability A
+- Core capability B
+- Core capability C
+
+## ⚡️ Quick Start (Run in 3 seconds)
+
+```bash
+docker run --rm -it --pull=always docker.io/leduchuong/telegram_mediachanel_manager_bot:latest
+```
+
+> Keep this command copy-paste ready before release; do not require readers to edit parameters.
+
+## Docker Compose (Portainer / NAS ready)
+
+```yaml
+services:
+  app:
+    image: docker.io/leduchuong/telegram_mediachanel_manager_bot:latest
+    container_name: telegram_mediachanel_manager_bot
+    restart: unless-stopped
+    environment:
+      - TZ=UTC
+    ports:
+      - "8000:8000"
+```
+
+## GitHub Topics (pick at least 5)
+
+`#nas` `#homelab` `#selfhosted` `#synology` `#unraid` `#eink` `#automation`
 
 ## Getting Started
 
 ### Prerequisites
 
-- Python 3.11+
-- Telegram Bot Token
-- Optional: Telegram API ID / API HASH (required for historical scan)
-- Docker and Docker Compose (recommended)
+- Runtime/language versions
+- Dependency and system requirements
 
-### Run with Docker
+### Installation
 
 ```bash
-cp .env.example .env
-# edit .env and config.json
-
-docker compose up -d --build
+<install command>
 ```
 
-Open: `http://localhost:1009`
-
-### Run Locally
+### Run
 
 ```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-python web_app.py
+<run command>
+```
+
+## Usage Example
+
+```bash
+<example command>
 ```
 
 ## Where to Get Help
 
-- Issues: `https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/issues`
-- Include sanitized logs and reproducible steps
+- Issues: `<repo>/issues`
+- Discussions / docs links
+- Contact (optional)
 
 ## Maintainers and Contributors
 
-- Maintainer: `@leduchuong48-byte`
+- Maintainer: @your-name
+- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Disclaimer
 
 By using this project, you acknowledge and agree to the [Disclaimer](DISCLAIMER.md).
+
+## License
+
+For example MIT, see [LICENSE](LICENSE)

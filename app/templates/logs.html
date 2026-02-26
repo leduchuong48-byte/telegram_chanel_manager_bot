@@ -196,17 +196,20 @@
     </button>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/ansi_up/5.1.0/ansi_up.min.js"></script>
 <script>
     const terminal = document.getElementById('terminal');
     const statusDot = document.getElementById('status-dot');
     const scrollButton = document.getElementById('scrollButton');
     const levelFilter = document.getElementById('levelFilter');
-    const ansiUp = new AnsiUp();
 
     let ws = null;
     let isAutoScroll = true;
     let reconnectTimer = null;
+    let heartbeatTimer = null;
+
+    function stripAnsi(input) {
+        return String(input || '').replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
+    }
 
     function connect() {
         const token = localStorage.getItem('token');
@@ -222,7 +225,15 @@
 
         ws.onopen = () => {
             statusDot.className = 'status-dot connected';
-            appendLog('\x1b[32m[Client] 已连接日志流。\x1b[0m');
+            appendLog('[Client] 已连接日志流。');
+            if (heartbeatTimer) {
+                clearInterval(heartbeatTimer);
+            }
+            heartbeatTimer = setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send('ping');
+                }
+            }, 15000);
             if (reconnectTimer) {
                 clearTimeout(reconnectTimer);
             }
@@ -233,8 +244,12 @@
         };
 
         ws.onclose = () => {
+            if (heartbeatTimer) {
+                clearInterval(heartbeatTimer);
+                heartbeatTimer = null;
+            }
             statusDot.className = 'status-dot disconnected';
-            appendLog('\x1b[31m[Client] 连接已断开，3 秒后重试...\x1b[0m');
+            appendLog('[Client] 连接已断开，3 秒后重试...');
             reconnectTimer = setTimeout(connect, 3000);
         };
 
@@ -261,11 +276,10 @@
 
     function appendLog(text) {
         const level = getLogLevel(text);
-        const html = ansiUp.ansi_to_html(text);
         const div = document.createElement('div');
         div.className = 'log-entry';
         div.dataset.level = level;
-        div.innerHTML = html;
+        div.textContent = stripAnsi(text);
         div.style.display = shouldShow(level) ? 'block' : 'none';
         terminal.appendChild(div);
 

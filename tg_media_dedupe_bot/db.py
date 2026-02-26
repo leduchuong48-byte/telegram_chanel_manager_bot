@@ -152,6 +152,32 @@ class Database:
                 """
             )
 
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS managed_chats (
+                  chat_id INTEGER NOT NULL PRIMARY KEY,
+                  title TEXT NOT NULL DEFAULT '',
+                  username TEXT NOT NULL DEFAULT '',
+                  chat_type TEXT NOT NULL DEFAULT '',
+                  source TEXT NOT NULL DEFAULT '',
+                  is_active INTEGER NOT NULL DEFAULT 1,
+                  bot_status TEXT NOT NULL DEFAULT 'unknown',
+                  bot_can_manage INTEGER NOT NULL DEFAULT 0,
+                  last_seen_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL,
+                  verified_at INTEGER NOT NULL DEFAULT 0,
+                  verified_by TEXT NOT NULL DEFAULT ''
+                );
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_managed_chats_active_updated
+                ON managed_chats(is_active, updated_at DESC);
+                """
+            )
+            self._ensure_managed_chats_schema()
+
     def _ensure_tag_library_schema(self) -> None:
         rows = self._conn.execute("PRAGMA table_info(tag_library)").fetchall()
         columns = [str(row["name"]) for row in rows]
@@ -180,6 +206,24 @@ class Database:
             );
             """
         )
+
+    def _ensure_managed_chats_schema(self) -> None:
+        rows = self._conn.execute("PRAGMA table_info(managed_chats)").fetchall()
+        if not rows:
+            return
+        columns = {str(row["name"]) for row in rows}
+        migrations: list[tuple[str, str]] = [
+            ("source", "ALTER TABLE managed_chats ADD COLUMN source TEXT NOT NULL DEFAULT ''"),
+            ("bot_status", "ALTER TABLE managed_chats ADD COLUMN bot_status TEXT NOT NULL DEFAULT 'unknown'"),
+            ("bot_can_manage", "ALTER TABLE managed_chats ADD COLUMN bot_can_manage INTEGER NOT NULL DEFAULT 0"),
+            ("last_seen_at", "ALTER TABLE managed_chats ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0"),
+            ("updated_at", "ALTER TABLE managed_chats ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"),
+            ("verified_at", "ALTER TABLE managed_chats ADD COLUMN verified_at INTEGER NOT NULL DEFAULT 0"),
+            ("verified_by", "ALTER TABLE managed_chats ADD COLUMN verified_by TEXT NOT NULL DEFAULT ''"),
+        ]
+        for column, sql in migrations:
+            if column not in columns:
+                self._conn.execute(sql)
 
     def get_setting(self, key: str) -> str | None:
         row = self._conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
@@ -281,6 +325,155 @@ class Database:
             (chat_id,),
         ).fetchall()
         return [(str(row["old_tag"]), str(row["new_tag"])) for row in rows]
+
+    def upsert_managed_chat(
+        self,
+        *,
+        chat_id: int,
+        title: str,
+        username: str,
+        chat_type: str,
+        source: str,
+        is_active: bool,
+        bot_status: str | None = None,
+        bot_can_manage: bool | None = None,
+        verified_at: int | None = None,
+        verified_by: str | None = None,
+    ) -> None:
+        now = int(time.time())
+        existing = self._conn.execute(
+            "SELECT bot_status, bot_can_manage, verified_at, verified_by FROM managed_chats WHERE chat_id=?",
+            (int(chat_id),),
+        ).fetchone()
+        if bot_status is None:
+            status_value = str(existing["bot_status"]) if existing is not None else "unknown"
+        else:
+            status_value = (bot_status or "").strip().lower() or "unknown"
+        if bot_can_manage is None:
+            can_manage_value = int(existing["bot_can_manage"]) if existing is not None else 0
+        else:
+            can_manage_value = int(bool(bot_can_manage))
+        if isinstance(verified_at, int):
+            verified_at_value = max(0, verified_at)
+        elif existing is not None:
+            verified_at_value = int(existing["verified_at"] or 0)
+        else:
+            verified_at_value = 0
+        if verified_by is None:
+            verified_by_value = str(existing["verified_by"]) if existing is not None else ""
+        else:
+            verified_by_value = str(verified_by).strip()
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO managed_chats(
+                  chat_id, title, username, chat_type, source,
+                  is_active, bot_status, bot_can_manage,
+                  last_seen_at, updated_at, verified_at, verified_by
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chat_id) DO UPDATE SET
+                  title=excluded.title,
+                  username=excluded.username,
+                  chat_type=excluded.chat_type,
+                  source=excluded.source,
+                  is_active=excluded.is_active,
+                  bot_status=excluded.bot_status,
+                  bot_can_manage=excluded.bot_can_manage,
+                  last_seen_at=excluded.last_seen_at,
+                  updated_at=excluded.updated_at,
+                  verified_at=excluded.verified_at,
+                  verified_by=excluded.verified_by
+                """,
+                (
+                    int(chat_id),
+                    title.strip(),
+                    username.strip().lstrip("@"),
+                    chat_type.strip().lower(),
+                    source.strip(),
+                    int(bool(is_active)),
+                    status_value,
+                    can_manage_value,
+                    now,
+                    now,
+                    verified_at_value,
+                    verified_by_value,
+                ),
+            )
+
+    def list_managed_chats(
+        self,
+        *,
+        active_only: bool = True,
+        manageable_only: bool = False,
+        limit: int = 500,
+    ) -> list[dict[str, int | str | bool]]:
+        safe_limit = max(1, min(int(limit), 5000))
+        where = []
+        params: list[int] = []
+        if active_only:
+            where.append("is_active = 1")
+        if manageable_only:
+            where.append("bot_can_manage = 1")
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        rows = self._conn.execute(
+            f"""
+            SELECT
+              chat_id, title, username, chat_type, source,
+              is_active, bot_status, bot_can_manage,
+              last_seen_at, updated_at, verified_at, verified_by
+            FROM managed_chats
+            {where_sql}
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            [*params, safe_limit],
+        ).fetchall()
+        result: list[dict[str, int | str | bool]] = []
+        for row in rows:
+            result.append(
+                {
+                    "chat_id": int(row["chat_id"]),
+                    "title": str(row["title"] or ""),
+                    "username": str(row["username"] or ""),
+                    "chat_type": str(row["chat_type"] or ""),
+                    "source": str(row["source"] or ""),
+                    "is_active": bool(row["is_active"]),
+                    "bot_status": str(row["bot_status"] or "unknown"),
+                    "bot_can_manage": int(row["bot_can_manage"]) == 1,
+                    "last_seen_at": int(row["last_seen_at"]),
+                    "updated_at": int(row["updated_at"]),
+                    "verified_at": int(row["verified_at"] or 0),
+                    "verified_by": str(row["verified_by"] or ""),
+                }
+            )
+        return result
+
+    def list_known_chat_ids(self, *, limit: int = 1000) -> list[int]:
+        safe_limit = max(1, min(int(limit), 10000))
+        rows = self._conn.execute(
+            """
+            WITH known AS (
+              SELECT chat_id FROM media_messages
+              UNION
+              SELECT chat_id FROM media_canonical
+              UNION
+              SELECT chat_id FROM pending_deletions
+              UNION
+              SELECT chat_id FROM tag_library
+              UNION
+              SELECT chat_id FROM tag_aliases
+              UNION
+              SELECT chat_id FROM tag_build_sent
+            )
+            SELECT chat_id
+            FROM known
+            ORDER BY ABS(chat_id) DESC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        ).fetchall()
+        return [int(row["chat_id"]) for row in rows]
 
     def set_tag_alias(self, *, chat_id: int, old_tag: str, new_tag: str) -> None:
         old_key = self._normalize_tag(old_tag)
