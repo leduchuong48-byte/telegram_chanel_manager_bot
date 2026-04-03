@@ -109,6 +109,9 @@ def _apply_media_filter_config(raw_config: dict[str, Any]) -> None:
     if not isinstance(raw_config, dict):
         raw_config = {}
 
+    if isinstance(raw_config.get("default"), dict):
+        raw_config = raw_config.get("default", {})
+
     size_limit = _coerce_float(raw_config.get("size_limit_mb"))
     duration_limit = _coerce_float(raw_config.get("duration_limit_min"))
     filter_mode = str(raw_config.get("filter_mode", "off")).strip().lower()

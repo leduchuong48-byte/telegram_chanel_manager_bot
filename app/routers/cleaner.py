@@ -31,11 +31,13 @@ _config_manager: ConfigManager | None = None
 
 class BatchDeleteRequest(BaseModel):
     count: int = Field(..., ge=1, le=5000)
+    target: str | None = None
 
 
 class DeleteByTypeRequest(BaseModel):
     types: list[str] = Field(default_factory=list)
     limit: int = Field(100, ge=1, le=5000)
+    target: str | None = None
 
 
 def set_config_manager(manager: ConfigManager) -> None:
@@ -79,7 +81,25 @@ async def _resolve_target_entities(client: TelegramClient, tokens: list[str]) ->
     return entities
 
 
-async def _resolve_targets(client: TelegramClient, bot_config: dict[str, Any]) -> list[tuple[str, Any]]:
+def _resolve_target_from_payload(payload: Any) -> str | None:
+    if payload is None:
+        return None
+    raw = getattr(payload, "target", None)
+    if raw is None:
+        return None
+    value = str(raw).strip()
+    return value or None
+
+
+async def _resolve_targets(
+    client: TelegramClient,
+    bot_config: dict[str, Any],
+    *,
+    requested_target: str | None = None,
+) -> list[tuple[str, Any]]:
+    if requested_target:
+        return await _resolve_target_entities(client, [requested_target])
+
     tokens = _get_target_tokens(bot_config)
     if tokens:
         return await _resolve_target_entities(client, tokens)
@@ -144,7 +164,8 @@ async def batch_delete(
             bot_session_detail="当前会话为 Bot 账号，无法执行清理",
             connect_error_detail="连接 Telethon 会话失败",
         ) as client:
-            targets = await _resolve_targets(client, bot_config)
+            requested_target = _resolve_target_from_payload(payload)
+            targets = await _resolve_targets(client, bot_config, requested_target=requested_target)
             results: list[dict[str, Any]] = []
             total_deleted = 0
             total_scanned = 0
@@ -200,7 +221,8 @@ async def delete_by_type(
             bot_session_detail="当前会话为 Bot 账号，无法执行清理",
             connect_error_detail="连接 Telethon 会话失败",
         ) as client:
-            targets = await _resolve_targets(client, bot_config)
+            requested_target = _resolve_target_from_payload(payload)
+            targets = await _resolve_targets(client, bot_config, requested_target=requested_target)
             results: list[dict[str, Any]] = []
             total_deleted = 0
             total_scanned = 0

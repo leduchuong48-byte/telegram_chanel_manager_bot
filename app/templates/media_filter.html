@@ -1,262 +1,190 @@
 {% extends "base.html" %}
 
+{% block page_title %}媒体筛选{% endblock %}
+{% block page_subtitle %}以全局默认或群组覆盖方式配置媒体类型、大小和时长限制。{% endblock %}
+{% block page_mode %}page-tool{% endblock %}
+
 {% block content %}
 <style>
-    .filter-card {
-        background: rgba(12, 20, 30, 0.72);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 22px;
-        padding: 24px;
-        box-shadow: 0 20px 44px rgba(6, 12, 18, 0.45);
-        display: flex;
-        flex-direction: column;
-        gap: 18px;
-        min-height: 60vh;
-    }
-
-    .form-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 16px;
-    }
-
-    .form-field {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .form-field label {
-        font-size: 13px;
-        color: var(--muted);
-        letter-spacing: 0.4px;
-    }
-
-    .form-field input,
-    .form-field select {
-        background: rgba(8, 14, 22, 0.85);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 14px;
-        padding: 12px 14px;
-        color: var(--text);
-        font-size: 14px;
-        outline: none;
-        transition: border-color 0.2s ease, box-shadow 0.2s ease;
-    }
-
-    .form-field input:focus,
-    .form-field select:focus {
-        border-color: rgba(10, 132, 255, 0.6);
-        box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.15);
-    }
-
-    .checkbox-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-        gap: 10px;
-    }
-
-    .checkbox-item {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        background: rgba(8, 14, 22, 0.7);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        padding: 10px 12px;
-        border-radius: 12px;
-        font-size: 13px;
-        color: var(--text);
-    }
-
-    .toolbar {
-        display: flex;
-        justify-content: flex-end;
-        gap: 10px;
-    }
-
-    .hint {
-        font-size: 12px;
-        color: var(--muted);
-    }
-
-    .toast {
-        position: fixed;
-        bottom: 24px;
-        right: 24px;
-        background: rgba(10, 16, 24, 0.9);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: var(--text);
-        padding: 12px 18px;
-        border-radius: 12px;
-        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.45);
-        opacity: 0;
-        transform: translateY(8px);
-        transition: all 0.2s ease;
-        pointer-events: none;
-    }
-
-    .toast.show {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    .tool-page { display: flex; flex-direction: column; gap: 18px; }
+    .tool-surface { background: var(--bg-panel); border: 1px solid var(--border-soft); border-radius: var(--radius-panel); box-shadow: var(--shadow-panel); padding: 22px; display: flex; flex-direction: column; gap: 16px; }
+    .surface-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+    .surface-title { font-size: 15px; font-weight: 700; }
+    .surface-sub, .hint, .muted, .scope-state { font-size: 12px; color: var(--text-faint); }
+    .scope-grid, .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+    .field-stack { display: flex; flex-direction: column; gap: 8px; }
+    .field-label { font-size: 12px; color: var(--text-faint); }
+    .field, .target-select { width: 100%; border: 1px solid var(--border-soft); background: rgba(255,255,255,0.84); color: var(--text); border-radius: var(--radius-control); padding: 11px 13px; font-size: 13px; outline: none; }
+    .checkbox-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+    .checkbox-item { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 14px; background: rgba(248,250,252,0.92); border: 1px solid var(--border-soft); font-size: 13px; }
+    .toolbar { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+    .toast { position: fixed; right: 24px; bottom: 24px; padding: 12px 16px; border-radius: 16px; background: rgba(15,23,42,0.92); color: #fff; font-size: 13px; box-shadow: 0 18px 36px rgba(15,23,42,0.18); opacity: 0; transform: translateY(8px); transition: all var(--normal) ease; pointer-events: none; }
+    .toast.show { opacity: 1; transform: translateY(0); }
 </style>
 
-<div class="filter-card">
-    <div class="form-grid">
-        <div class="form-field">
-            <label for="size_limit">大小限制 (MB)</label>
-            <input id="size_limit" type="number" min="0" step="0.1" placeholder="0 表示不限制">
+<div class="tool-page">
+    <section class="tool-surface">
+        <div class="surface-head">
+            <div>
+                <div class="surface-title">作用域</div>
+                <div class="surface-sub">先选择全局默认或群组覆盖，再编辑具体筛选规则。</div>
+            </div>
+            <button class="btn" id="refreshBtn">刷新</button>
         </div>
-        <div class="form-field">
-            <label for="duration_limit">时长限制 (分钟)</label>
-            <input id="duration_limit" type="number" min="0" step="1" placeholder="0 表示不限制">
+        <div class="scope-grid">
+            <div class="field-stack">
+                <label class="field-label" for="scopeSelect">规则作用域</label>
+                <select class="field" id="scopeSelect">
+                    <option value="default">全局默认</option>
+                    <option value="target">群组覆盖</option>
+                </select>
+            </div>
+            <div class="field-stack">
+                <label class="field-label" for="targetSelect">目标群组</label>
+                <select class="target-select" id="targetSelect">
+                    <option value="">请选择目标群组</option>
+                </select>
+            </div>
         </div>
-        <div class="form-field">
-            <label for="filter_mode">过滤模式</label>
-            <select id="filter_mode">
-                <option value="off">关闭</option>
-                <option value="blacklist">黑名单</option>
-                <option value="whitelist">白名单</option>
-            </select>
-        </div>
-    </div>
+        <div class="scope-state" id="scopeState">当前正在编辑全局默认规则。</div>
+    </section>
 
-    <div>
-        <div style="font-size: 13px; color: var(--muted); margin-bottom: 10px;">媒体类型</div>
-        <div class="checkbox-grid">
-            <label class="checkbox-item">
-                <input type="checkbox" value="video">
-                视频 (Video)
-            </label>
-            <label class="checkbox-item">
-                <input type="checkbox" value="audio">
-                音频 (Audio)
-            </label>
-            <label class="checkbox-item">
-                <input type="checkbox" value="photo">
-                图片 (Photo)
-            </label>
-            <label class="checkbox-item">
-                <input type="checkbox" value="document">
-                文档 (Document)
-            </label>
+    <section class="tool-surface">
+        <div class="surface-head">
+            <div>
+                <div class="surface-title">筛选规则</div>
+                <div class="surface-sub">规则会在 TG 媒体处理阶段生效。群组覆盖会继承全局默认值，适合少量差异化场景。</div>
+            </div>
         </div>
-    </div>
-
-    <div class="hint">大小与时长限制按“大于”逻辑处理，0 表示不限制。</div>
-
-    <div class="toolbar">
-        <button class="btn" id="refreshBtn">刷新</button>
-        <button class="btn btn-primary" id="saveBtn">保存并生效</button>
-    </div>
+        <div class="form-grid">
+            <div class="field-stack">
+                <label class="field-label" for="size_limit">大小限制 (MB)</label>
+                <input class="field" id="size_limit" type="number" min="0" step="0.1" placeholder="0 表示不限制">
+            </div>
+            <div class="field-stack">
+                <label class="field-label" for="duration_limit">时长限制 (分钟)</label>
+                <input class="field" id="duration_limit" type="number" min="0" step="1" placeholder="0 表示不限制">
+            </div>
+            <div class="field-stack">
+                <label class="field-label" for="filter_mode">过滤模式</label>
+                <select class="field" id="filter_mode">
+                    <option value="off">关闭</option>
+                    <option value="blacklist">黑名单</option>
+                    <option value="whitelist">白名单</option>
+                </select>
+            </div>
+        </div>
+        <div>
+            <div class="field-label" style="margin-bottom:10px;">媒体类型</div>
+            <div class="checkbox-grid">
+                <label class="checkbox-item"><input type="checkbox" value="video"> 视频</label>
+                <label class="checkbox-item"><input type="checkbox" value="audio"> 音频</label>
+                <label class="checkbox-item"><input type="checkbox" value="photo"> 图片</label>
+                <label class="checkbox-item"><input type="checkbox" value="document"> 文档</label>
+            </div>
+        </div>
+        <div class="hint">大小与时长按“大于”逻辑处理。建议先确定全局默认，再为少数群组做覆盖。</div>
+        <div class="toolbar">
+            <button class="btn btn-primary" id="saveBtn">保存并生效</button>
+        </div>
+    </section>
 </div>
 
 <div class="toast" id="toast"></div>
+{% endblock %}
 
+{% block extra_script %}
 <script>
     const TOKEN_KEY = 'token';
     const sizeInput = document.getElementById('size_limit');
     const durationInput = document.getElementById('duration_limit');
     const modeSelect = document.getElementById('filter_mode');
+    const scopeSelect = document.getElementById('scopeSelect');
+    const targetSelect = document.getElementById('targetSelect');
+    const scopeState = document.getElementById('scopeState');
     const toast = document.getElementById('toast');
 
-    function showToast(message) {
-        toast.textContent = message;
-        toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 2400);
+    function showToast(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200); }
+    function getToken() { return localStorage.getItem(TOKEN_KEY); }
+    function redirectToLogin() { localStorage.removeItem(TOKEN_KEY); window.location.href = '/login'; }
+    function getSelectedTypes() { return Array.from(document.querySelectorAll('.checkbox-item input[type="checkbox"]')).filter((el) => el.checked).map((el) => el.value); }
+    function setSelectedTypes(types) { const set = new Set(types || []); document.querySelectorAll('.checkbox-item input[type="checkbox"]').forEach((el) => el.checked = set.has(el.value)); }
+    function getSelectedTarget() { return scopeSelect.value === 'target' ? String(targetSelect.value || '').trim() || null : null; }
+
+    function updateScopeState(meta = {}) {
+        const scope = scopeSelect.value;
+        targetSelect.disabled = scope !== 'target';
+        if (scope !== 'target') { scopeState.textContent = '当前正在编辑全局默认规则。'; return; }
+        const target = getSelectedTarget();
+        if (!target) { scopeState.textContent = '请选择目标群组后再编辑群组覆盖规则。'; return; }
+        scopeState.textContent = meta.has_override ? `当前群组已存在覆盖规则：${target}` : `当前群组尚未单独覆盖，将显示继承自全局默认的结果：${target}`;
     }
 
-    function getToken() {
-        return localStorage.getItem(TOKEN_KEY);
-    }
-
-    function redirectToLogin() {
-        localStorage.removeItem(TOKEN_KEY);
-        window.location.href = '/login';
-    }
-
-    function getSelectedTypes() {
-        const types = [];
-        document.querySelectorAll('.checkbox-item input[type="checkbox"]').forEach((checkbox) => {
-            if (checkbox.checked) {
-                types.push(checkbox.value);
-            }
+    async function loadTargets() {
+        const token = getToken();
+        if (!token) { redirectToLogin(); return false; }
+        const resp = await fetch('/api/tools/targets', { headers: { 'Authorization': `Bearer ${token}` } });
+        if (resp.status === 401) { redirectToLogin(); return false; }
+        const payload = await resp.json().catch(() => ({}));
+        const current = String(targetSelect.value || '').trim();
+        targetSelect.innerHTML = '<option value="">请选择目标群组</option>';
+        const targets = Array.isArray(payload.targets) ? payload.targets.filter((item) => item && item.bot_can_manage === true) : [];
+        targets.forEach((item) => {
+            const option = document.createElement('option');
+            option.value = item.token || '';
+            option.textContent = `${item.title || item.token || '未命名'} [${item.token}]`;
+            targetSelect.appendChild(option);
         });
-        return types;
-    }
-
-    function setSelectedTypes(types) {
-        const set = new Set(types || []);
-        document.querySelectorAll('.checkbox-item input[type="checkbox"]').forEach((checkbox) => {
-            checkbox.checked = set.has(checkbox.value);
-        });
+        targetSelect.value = current && targets.some((item) => item.token === current) ? current : '';
+        return true;
     }
 
     async function loadConfig() {
         const token = getToken();
-        if (!token) {
-            redirectToLogin();
-            return;
-        }
-        const resp = await fetch('/api/filters/media', {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        if (resp.status === 401) {
-            redirectToLogin();
-            return;
-        }
-        if (!resp.ok) {
-            showToast('加载失败');
-            return;
-        }
+        if (!token) { redirectToLogin(); return; }
+        const target = getSelectedTarget();
+        const query = target ? `?target=${encodeURIComponent(target)}` : '';
+        const resp = await fetch(`/api/filters/media${query}`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (resp.status === 401) { redirectToLogin(); return; }
+        if (!resp.ok) { showToast('加载失败'); return; }
         const payload = await resp.json();
         const data = payload.data || {};
         sizeInput.value = data.size_limit_mb ?? 0;
         durationInput.value = data.duration_limit_min ?? 0;
         modeSelect.value = data.filter_mode || 'off';
         setSelectedTypes(data.media_types || []);
+        updateScopeState(payload.meta || {});
     }
 
     async function saveConfig() {
         const token = getToken();
-        if (!token) {
-            redirectToLogin();
-            return;
-        }
+        if (!token) { redirectToLogin(); return; }
+        const target = getSelectedTarget();
+        if (scopeSelect.value === 'target' && !target) { showToast('请先选择目标群组'); return; }
         const sizeValue = parseFloat(sizeInput.value || '0');
         const durationValue = parseFloat(durationInput.value || '0');
         const payload = {
             size_limit_mb: Number.isFinite(sizeValue) ? sizeValue : 0,
             duration_limit_min: Number.isFinite(durationValue) ? durationValue : 0,
             filter_mode: modeSelect.value,
-            media_types: getSelectedTypes()
+            media_types: getSelectedTypes(),
+            target,
         };
         const resp = await fetch('/api/filters/media', {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        if (resp.status === 401) {
-            redirectToLogin();
-            return;
-        }
-        if (!resp.ok) {
-            const err = await resp.json().catch(() => ({}));
-            showToast(err.detail || '保存失败');
-            return;
-        }
-        showToast('配置已保存并生效');
+        if (resp.status === 401) { redirectToLogin(); return; }
+        if (!resp.ok) { const err = await resp.json().catch(() => ({})); showToast(err.detail || '保存失败'); return; }
+        showToast(scopeSelect.value === 'target' ? '群组覆盖规则已保存并生效' : '全局默认规则已保存并生效');
         await loadConfig();
     }
 
     document.getElementById('refreshBtn').addEventListener('click', loadConfig);
     document.getElementById('saveBtn').addEventListener('click', saveConfig);
-
-    loadConfig();
+    scopeSelect.addEventListener('change', loadConfig);
+    targetSelect.addEventListener('change', loadConfig);
+    loadTargets().then((ok) => { if (ok) { updateScopeState(); loadConfig(); } });
 </script>
 {% endblock %}

@@ -1,92 +1,58 @@
 {% extends "base.html" %}
 
+{% block page_title %}屏蔽词管理{% endblock %}
+{% block page_subtitle %}维护文本屏蔽词列表，保存后会同步到 Bot 的文本过滤策略。{% endblock %}
+{% block page_mode %}page-tool{% endblock %}
+
 {% block content %}
 <style>
-    .filter-shell {
-        background: rgba(12, 20, 30, 0.72);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 20px;
-        padding: 20px;
-        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.4);
-        display: flex;
-        flex-direction: column;
-        gap: 14px;
-        min-height: 70vh;
-    }
-
-    .filter-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        flex-wrap: wrap;
-    }
-
-    .filter-title {
-        font-size: 16px;
-        font-weight: 600;
-    }
-
-    .filter-sub {
-        font-size: 12px;
-        color: var(--muted);
-        margin-top: 4px;
-    }
-
-    textarea {
-        flex: 1;
-        min-height: 420px;
+    .tool-page { display: flex; flex-direction: column; gap: 18px; }
+    .tool-surface { background: var(--bg-panel); border: 1px solid var(--border-soft); border-radius: var(--radius-panel); box-shadow: var(--shadow-panel); padding: 22px; display: flex; flex-direction: column; gap: 16px; }
+    .surface-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+    .surface-title { font-size: 15px; font-weight: 700; }
+    .surface-sub, .hint { font-size: 12px; color: var(--text-faint); }
+    .editor-shell { display: flex; flex-direction: column; gap: 12px; }
+    .keywords-textarea {
+        width: 100%;
+        min-height: 460px;
         resize: vertical;
-        background: rgba(8, 14, 22, 0.85);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 14px;
-        padding: 14px;
+        border: 1px solid var(--border-soft);
+        background: rgba(255, 255, 255, 0.94);
         color: var(--text);
-        font-size: 13px;
-        font-family: "JetBrains Mono", "Fira Code", monospace;
+        border-radius: 18px;
+        padding: 16px;
+        font-size: 14px;
+        line-height: 1.65;
+        font-family: "SFMono-Regular", "JetBrains Mono", monospace;
         outline: none;
+        box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
     }
-
-    .hint {
-        font-size: 12px;
-        color: var(--muted);
+    .keywords-textarea:focus {
+        border-color: rgba(0, 113, 227, 0.26);
+        box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.08);
     }
-
-    .toast {
-        position: fixed;
-        bottom: 24px;
-        right: 24px;
-        background: rgba(12, 20, 30, 0.92);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: var(--text);
-        padding: 12px 18px;
-        border-radius: 12px;
-        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.45);
-        opacity: 0;
-        transform: translateY(8px);
-        transition: all 0.2s ease;
-        pointer-events: none;
-    }
-
-    .toast.show {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    .toolbar { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+    .toast { position: fixed; right: 24px; bottom: 24px; padding: 12px 16px; border-radius: 16px; background: rgba(15, 23, 42, 0.92); color: #fff; font-size: 13px; box-shadow: 0 18px 36px rgba(15, 23, 42, 0.18); opacity: 0; transform: translateY(8px); transition: all var(--normal) ease; pointer-events: none; }
+    .toast.show { opacity: 1; transform: translateY(0); }
 </style>
 
-<div class="filter-shell">
-    <div class="filter-header">
-        <div>
-            <div class="filter-title">屏蔽词列表</div>
-            <div class="filter-sub">每行一个关键词，保存后会自动去重。</div>
+<div class="tool-page">
+    <section class="tool-surface">
+        <div class="surface-head">
+            <div>
+                <div class="surface-title">屏蔽词列表</div>
+                <div class="surface-sub">每行一个关键词。保存时会自动去重，并忽略注释行。</div>
+            </div>
+            <div class="toolbar">
+                <button class="btn" id="refreshBtn">刷新</button>
+                <button class="btn btn-primary" id="saveBtn">保存</button>
+            </div>
         </div>
-        <div class="filter-actions">
-            <button class="btn" id="refreshBtn">刷新</button>
-            <button class="btn btn-primary" id="saveBtn">保存</button>
+        <div class="editor-shell">
+            <textarea class="keywords-textarea" id="keywordsInput" placeholder="每行一个屏蔽词"></textarea>
+            <div class="hint">以 `#`、`//`、`;` 开头的行会被视为注释并忽略。</div>
         </div>
-    </div>
-    <textarea id="keywordsInput" placeholder="每行一个屏蔽词"></textarea>
-    <div class="hint">以 # / // / ; 开头的行会被忽略。</div>
+    </section>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -99,17 +65,11 @@
     function showToast(message) {
         toast.textContent = message;
         toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 2400);
+        setTimeout(() => toast.classList.remove('show'), 2200);
     }
 
-    function getToken() {
-        return localStorage.getItem(TOKEN_KEY);
-    }
-
-    function redirectToLogin() {
-        localStorage.removeItem(TOKEN_KEY);
-        window.location.href = '/login';
-    }
+    function getToken() { return localStorage.getItem(TOKEN_KEY); }
+    function redirectToLogin() { localStorage.removeItem(TOKEN_KEY); window.location.href = '/login'; }
 
     function parseKeywords() {
         const lines = keywordsInput.value.split(/\n+/);
@@ -129,46 +89,24 @@
 
     async function loadKeywords() {
         const token = getToken();
-        if (!token) {
-            redirectToLogin();
-            return;
-        }
-        const resp = await fetch('/api/filters/text_block', {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        if (resp.status === 401) {
-            redirectToLogin();
-            return;
-        }
-        if (!resp.ok) {
-            showToast('加载失败');
-            return;
-        }
+        if (!token) { redirectToLogin(); return; }
+        const resp = await fetch('/api/filters/text_block', { headers: { 'Authorization': `Bearer ${token}` } });
+        if (resp.status === 401) { redirectToLogin(); return; }
+        if (!resp.ok) { showToast('加载失败'); return; }
         const payload = await resp.json();
         keywordsInput.value = (payload.keywords || []).join('\n');
     }
 
     async function saveKeywords() {
         const token = getToken();
-        if (!token) {
-            redirectToLogin();
-            return;
-        }
+        if (!token) { redirectToLogin(); return; }
         const keywords = parseKeywords();
         const resp = await fetch('/api/filters/text_block', {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ keywords })
         });
-        if (resp.status === 401) {
-            redirectToLogin();
-            return;
-        }
+        if (resp.status === 401) { redirectToLogin(); return; }
         if (!resp.ok) {
             const payload = await resp.json().catch(() => ({}));
             showToast(payload.detail || '保存失败');
@@ -180,7 +118,6 @@
 
     document.getElementById('refreshBtn').addEventListener('click', loadKeywords);
     document.getElementById('saveBtn').addEventListener('click', saveKeywords);
-
     loadKeywords();
 </script>
 {% endblock %}

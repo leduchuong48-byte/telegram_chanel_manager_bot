@@ -24,14 +24,26 @@ _TAG_GROUPS_DIR = _DATA_DIR / "tag_groups"
 _TAG_ALIASES_DIR = _DATA_DIR / "tag_aliases"
 
 
+class TagSection(BaseModel):
+    name: str
+    tags: list[str] = Field(default_factory=list)
+
+
 class TagGroup(BaseModel):
     name: str
     tags: list[str] = Field(default_factory=list)
+    sections: list[TagSection] = Field(default_factory=list)
 
 
 class TagGroupRequest(BaseModel):
     name: str
     tags: list[str] = Field(default_factory=list)
+    sections: list[TagSection] = Field(default_factory=list)
+
+
+class TagGroupRenameRequest(BaseModel):
+    old_name: str
+    new_name: str
 
 
 class TagAliasRule(BaseModel):
@@ -52,6 +64,15 @@ class TagAliasUpsertRequest(BaseModel):
     new_tag: str
     scope: Literal["chat", "global"] = "chat"
     chat_id: int | None = None
+
+
+class TagPreviewResponse(BaseModel):
+    group: str
+    target: str | None = None
+    sections: list[TagSection] = Field(default_factory=list)
+    rendered_messages: list[str] = Field(default_factory=list)
+    applied_alias_count: int = 0
+    split_count: int = 0
 
 
 def _ensure_dirs() -> None:
@@ -106,6 +127,99 @@ def _parse_tags_from_text(content: str) -> list[str]:
             if normalized:
                 tags.append(normalized)
     return _dedupe_keep_order(tags)
+
+
+def _extract_section_name(line: str) -> str | None:
+    stripped = line.strip()
+    if not stripped.startswith("---") or not stripped.endswith("---"):
+        return None
+    core = stripped.strip("-").strip().lstrip("#").strip()
+    return core or None
+
+
+def parse_tag_group_sections(content: str) -> list[dict[str, list[str] | str]]:
+    sections: list[dict[str, list[str] | str]] = []
+    current_name = "未分组"
+    current_tags: list[str] = []
+
+    def flush() -> None:
+        nonlocal current_tags, current_name
+        deduped = _dedupe_keep_order([tag for tag in current_tags if tag])
+        if sections or deduped or current_name != "未分组":
+            sections.append({"name": current_name, "tags": deduped})
+        current_tags = []
+
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("//") or line.startswith(";"):
+            continue
+        section_name = _extract_section_name(line)
+        if section_name is not None:
+            flush()
+            current_name = section_name
+            continue
+        parts = [part for part in re.split(r"[\s,]+", line) if part]
+        for part in parts:
+            normalized = _normalize_tag(part)
+            if normalized:
+                current_tags.append(normalized)
+
+    flush()
+    if not sections:
+        sections.append({"name": "未分组", "tags": []})
+    return [section for section in sections if section.get("name")]
+
+
+def dump_tag_group_sections(sections: list[dict[str, list[str] | str]] | list[TagSection]) -> str:
+    lines: list[str] = []
+    normalized_sections: list[tuple[str, list[str]]] = []
+    for section in sections:
+        if isinstance(section, TagSection):
+            name = section.name
+            tags = section.tags
+        else:
+            name = str(section.get("name") or "").strip()  # type: ignore[union-attr]
+            tags = list(section.get("tags") or [])  # type: ignore[union-attr]
+        safe_name = name or "未分组"
+        normalized_tags = _dedupe_keep_order([_normalize_tag(tag) for tag in tags if _normalize_tag(tag)])
+        normalized_sections.append((safe_name, normalized_tags))
+
+    for index, (name, tags) in enumerate(normalized_sections):
+        if index > 0:
+            lines.append("")
+        lines.append(f"-------{name}--------")
+        for tag in tags:
+            lines.append(f"#{tag}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _sections_to_models(sections: list[dict[str, list[str] | str]]) -> list[TagSection]:
+    models: list[TagSection] = []
+    for section in sections:
+        name = str(section.get("name") or "未分组")
+        tags = [str(tag) for tag in (section.get("tags") or [])]
+        models.append(TagSection(name=name, tags=tags))
+    return models
+
+
+def _build_preview_messages(sections: list[TagSection], alias_mapping: dict[str, str] | None = None) -> tuple[list[str], int]:
+    alias_mapping = alias_mapping or {}
+    rendered_sections: list[str] = []
+    applied_alias_count = 0
+    for section in sections:
+        lines = [f"-------{section.name}--------"]
+        section_tags: list[str] = []
+        for tag in section.tags:
+            mapped = alias_mapping.get(tag, tag)
+            if mapped != tag:
+                applied_alias_count += 1
+            section_tags.append(f"#{mapped}")
+        if section_tags:
+            lines.append(" ".join(section_tags))
+        rendered_sections.append("\n".join(lines))
+    return rendered_sections, applied_alias_count
 
 
 def _normalize_scope(raw: str) -> str:
@@ -276,7 +390,8 @@ async def list_groups(
         except OSError:
             continue
         tags = _parse_tags_from_text(content)
-        groups.append(TagGroup(name=path.stem, tags=tags))
+        sections = _sections_to_models(parse_tag_group_sections(content))
+        groups.append(TagGroup(name=path.stem, tags=tags, sections=sections))
     return groups
 
 
@@ -289,14 +404,21 @@ async def upsert_group(
     _ensure_dirs()
     name = _sanitize_name(request.name)
 
-    normalized = [_normalize_tag(tag) for tag in request.tags]
-    normalized = [tag for tag in normalized if tag]
-    tags = _dedupe_keep_order(normalized)
+    if request.sections:
+        content = dump_tag_group_sections(request.sections)
+        flat_tags: list[str] = []
+        for section in request.sections:
+            flat_tags.extend(section.tags)
+        tags = _dedupe_keep_order([_normalize_tag(tag) for tag in flat_tags if _normalize_tag(tag)])
+    else:
+        normalized = [_normalize_tag(tag) for tag in request.tags]
+        normalized = [tag for tag in normalized if tag]
+        tags = _dedupe_keep_order(normalized)
+        content = "\n".join(tags)
+        if content:
+            content += "\n"
 
     path = _TAG_GROUPS_DIR / f"{name}.txt"
-    content = "\n".join(tags)
-    if content:
-        content += "\n"
     path.write_text(content, encoding="utf-8")
 
     return MessageResponse(success=True, message="标签组已保存")
@@ -318,6 +440,73 @@ async def delete_group(
         )
     path.unlink()
     return MessageResponse(success=True, message="标签组已删除")
+
+
+@router.post("/groups/rename", response_model=MessageResponse)
+async def rename_group(
+    request: TagGroupRenameRequest,
+    _: Annotated[str, Depends(get_current_user)],
+) -> MessageResponse:
+    """Rename a tag group file atomically."""
+    _ensure_dirs()
+    old_name = _sanitize_name(request.old_name)
+    new_name = _sanitize_name(request.new_name)
+    if old_name == new_name:
+        return MessageResponse(success=True, message="标签组名称未变化")
+
+    old_path = _TAG_GROUPS_DIR / f"{old_name}.txt"
+    new_path = _TAG_GROUPS_DIR / f"{new_name}.txt"
+    if not old_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="原标签组不存在",
+        )
+    if new_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="新标签组名称已存在",
+        )
+
+    old_path.rename(new_path)
+    return MessageResponse(success=True, message="标签组已重命名")
+
+
+@router.get("/preview", response_model=TagPreviewResponse)
+async def preview_group(
+    group: str,
+    target: str | None,
+    _: Annotated[str, Depends(get_current_user)],
+) -> dict[str, object]:
+    """Preview rendered tag group output with alias mapping applied."""
+    _ensure_dirs()
+    safe_group = _sanitize_name(group)
+    path = _TAG_GROUPS_DIR / f"{safe_group}.txt"
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="标签组不存在")
+    content = path.read_text(encoding="utf-8")
+    sections = _sections_to_models(parse_tag_group_sections(content))
+
+    alias_mapping: dict[str, str] = {}
+    global_path = _alias_file_path(scope="global", chat_id=None)
+    alias_mapping.update(_parse_alias_mapping(global_path))
+    target_token = str(target or "").strip()
+    if target_token:
+        try:
+            chat_id = int(target_token)
+        except ValueError:
+            chat_id = None
+        if chat_id is not None:
+            alias_mapping.update(_parse_alias_mapping(_alias_file_path(scope="chat", chat_id=chat_id)))
+
+    rendered_messages, applied_alias_count = _build_preview_messages(sections, alias_mapping)
+    return {
+        "group": safe_group,
+        "target": target_token or None,
+        "sections": [section.model_dump() for section in sections],
+        "rendered_messages": rendered_messages,
+        "applied_alias_count": applied_alias_count,
+        "split_count": len(rendered_messages),
+    }
 
 
 @router.get("/aliases", response_model=TagAliasListResponse)

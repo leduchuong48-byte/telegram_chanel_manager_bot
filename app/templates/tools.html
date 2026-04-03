@@ -1,116 +1,63 @@
 {% extends "base.html" %}
 
+{% block page_title %}维护工具{% endblock %}
+{% block page_subtitle %}面向 Bot 管理员的高频维护动作入口，统一按目标群组执行。{% endblock %}
+{% block page_mode %}page-tool{% endblock %}
+
 {% block content %}
 <style>
-    .tools-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: 18px;
-    }
-
-    .tool-card {
-        background: rgba(12, 20, 30, 0.72);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 20px;
-        padding: 20px;
-        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.4);
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-    }
-
-    .card-title {
-        font-size: 16px;
-        font-weight: 600;
-    }
-
-    .card-desc {
-        font-size: 12px;
-        color: var(--muted);
-        line-height: 1.5;
-    }
-
-    .target-card {
-        margin-bottom: 18px;
-    }
-
-    .target-row {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-    }
-
-    .target-select {
-        flex: 1;
-        min-height: 38px;
-        border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(8, 14, 22, 0.88);
-        color: var(--text);
-        padding: 0 10px;
-    }
-
-    .btn-danger {
-        color: #ff8b8b;
-        border: 1px solid rgba(255, 59, 48, 0.3);
-        background: rgba(255, 59, 48, 0.12);
-    }
-
-    .btn-danger:hover {
-        background: rgba(255, 59, 48, 0.2);
-    }
-
-    .toast {
-        position: fixed;
-        bottom: 24px;
-        right: 24px;
-        background: rgba(12, 20, 30, 0.92);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: var(--text);
-        padding: 12px 18px;
-        border-radius: 12px;
-        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.45);
-        opacity: 0;
-        transform: translateY(8px);
-        transition: all 0.2s ease;
-        pointer-events: none;
-    }
-
-    .toast.show {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    .tool-page { display: flex; flex-direction: column; gap: 18px; }
+    .tool-surface { background: var(--bg-panel); border: 1px solid var(--border-soft); border-radius: var(--radius-panel); box-shadow: var(--shadow-panel); padding: 22px; display: flex; flex-direction: column; gap: 16px; }
+    .surface-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+    .surface-title { font-size: 15px; font-weight: 700; }
+    .surface-sub, .hint, .muted { font-size: 12px; color: var(--text-faint); }
+    .target-shell { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+    .target-select { width: 100%; border: 1px solid var(--border-soft); background: rgba(255,255,255,0.84); color: var(--text); border-radius: var(--radius-control); padding: 11px 13px; font-size: 13px; outline: none; }
+    .tool-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+    .tool-card { background: rgba(255,255,255,0.58); border: 1px solid var(--border-soft); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+    .tool-title { font-size: 15px; font-weight: 700; }
+    .tool-desc { font-size: 12px; color: var(--text-faint); line-height: 1.5; }
+    .toast { position: fixed; right: 24px; bottom: 24px; padding: 12px 16px; border-radius: 16px; background: rgba(15,23,42,0.92); color: #fff; font-size: 13px; box-shadow: 0 18px 36px rgba(15,23,42,0.18); opacity: 0; transform: translateY(8px); transition: all var(--normal) ease; pointer-events: none; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .btn-danger { color: var(--danger); border-color: rgba(201,52,47,0.18); background: rgba(201,52,47,0.06); }
 </style>
 
-<div class="tool-card target-card">
-    <div class="card-title">维护目标群组</div>
-    <div class="card-desc" id="targetSummary">正在加载可维护群组...</div>
-    <div class="target-row">
-        <select class="target-select" id="targetSelect">
-            <option value="">全部可维护群组</option>
-        </select>
-        <button class="btn" id="refreshTargetsBtn">刷新</button>
-    </div>
-</div>
+<div class="tool-page">
+    <section class="tool-surface">
+        <div class="surface-head">
+            <div>
+                <div class="surface-title">目标群组</div>
+                <div class="surface-sub" id="targetSummary">正在同步并加载 Bot 可维护群组...</div>
+            </div>
+            <button class="btn" id="refreshTargetsBtn">刷新</button>
+        </div>
+        <div class="target-shell">
+            <select class="target-select" id="targetSelect">
+                <option value="">全部可维护群组</option>
+            </select>
+            <div class="muted">执行前会再次校验 Bot 管理员权限与目标可达性</div>
+        </div>
+    </section>
 
-<div class="tools-grid">
-    <div class="tool-card">
-        <div class="card-title">修复标签计数</div>
-        <div class="card-desc">同步补标签数量到目标群组（/tag_count）。将使用 Bot 设置中的 tag_count。</div>
-        <button class="btn btn-primary" id="fixTagCountBtn">🏷️ 立即执行</button>
-    </div>
+    <section class="tool-grid">
+        <article class="tool-card">
+            <div class="tool-title">修复标签计数</div>
+            <div class="tool-desc">同步补标签数量到目标群组（/tag_count），将使用 Bot 设置中的 tag_count。</div>
+            <button class="btn btn-primary" id="fixTagCountBtn">立即执行</button>
+        </article>
 
-    <div class="tool-card">
-        <div class="card-title">重载标签缓存</div>
-        <div class="card-desc">触发标签更新流程（/tag_update），重新清理并生成标签目录。</div>
-        <button class="btn" id="reloadTagsBtn">🔄 执行标签更新</button>
-    </div>
+        <article class="tool-card">
+            <div class="tool-title">重载标签缓存</div>
+            <div class="tool-desc">触发标签更新流程（/tag_update），重新清理并生成标签目录。</div>
+            <button class="btn" id="reloadTagsBtn">执行标签更新</button>
+        </article>
 
-    <div class="tool-card">
-        <div class="card-title">重置系统状态</div>
-        <div class="card-desc">停止当前正在运行的标签相关任务（/tag_stop）。</div>
-        <button class="btn btn-danger" id="reloadSystemBtn">♻️ 重置系统</button>
-    </div>
+        <article class="tool-card">
+            <div class="tool-title">重置系统状态</div>
+            <div class="tool-desc">停止当前正在运行的标签相关任务（/tag_stop），用于紧急回收流程。</div>
+            <button class="btn btn-danger" id="reloadSystemBtn">重置系统</button>
+        </article>
+    </section>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -122,144 +69,55 @@
     const toast = document.getElementById('toast');
     const targetSelect = document.getElementById('targetSelect');
     const targetSummary = document.getElementById('targetSummary');
-    const refreshTargetsBtn = document.getElementById('refreshTargetsBtn');
 
-    function showToast(message) {
-        toast.textContent = message;
-        toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 2400);
-    }
-
-    function getToken() {
-        return localStorage.getItem(TOKEN_KEY);
-    }
-
-    function redirectToLogin() {
-        localStorage.removeItem(TOKEN_KEY);
-        window.location.href = '/login';
-    }
-
-    function getSelectedTarget() {
-        const value = (targetSelect.value || '').trim();
-        return value || null;
-    }
-
-    function getSelectedTargetLabel() {
-        const option = targetSelect.options[targetSelect.selectedIndex];
-        return option ? option.textContent : '全部可维护群组';
-    }
-
-    function formatVerifySource(item) {
-        const by = (item.verified_by || '').trim();
-        if (!by) return '未校验';
-        if (by === 'my_chat_member') return '已校验:my_chat_member';
-        if (by === 'get_chat_member') return '已校验:getChatMember';
-        return `已校验:${by}`;
-    }
+    function showToast(message) { toast.textContent = message; toast.classList.add('show'); setTimeout(() => toast.classList.remove('show'), 2200); }
+    function getToken() { return localStorage.getItem(TOKEN_KEY); }
+    function redirectToLogin() { localStorage.removeItem(TOKEN_KEY); window.location.href = '/login'; }
+    function getSelectedTarget() { const value = (targetSelect.value || '').trim(); return value || null; }
+    function getSelectedTargetLabel() { const option = targetSelect.options[targetSelect.selectedIndex]; return option ? option.textContent : '全部可维护群组'; }
 
     async function loadTargets(forceRefresh = false) {
         const token = getToken();
-        if (!token) {
-            redirectToLogin();
-            return;
-        }
+        if (!token) { redirectToLogin(); return; }
         const query = forceRefresh ? '?refresh=1' : '';
-        if (forceRefresh) {
-            targetSummary.textContent = '正在同步并刷新目标群组...';
-        }
-        const resp = await fetch(`/api/tools/targets${query}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (resp.status === 401) {
-            redirectToLogin();
-            return;
-        }
+        const resp = await fetch(`/api/tools/targets${query}`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (resp.status === 401) { redirectToLogin(); return; }
         const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) {
-            targetSummary.textContent = '加载目标群组失败';
-            showToast(data.detail || '加载目标群组失败');
-            return;
-        }
-
-        const targets = Array.isArray(data.targets) ? data.targets : [];
-        const manageableCount = Number(data.manageable_count || 0);
-        targetSelect.innerHTML = '';
-
-        const allOption = document.createElement('option');
-        allOption.value = '';
-        allOption.textContent = '全部可维护群组';
-        allOption.disabled = manageableCount === 0;
-        targetSelect.appendChild(allOption);
-
+        if (!resp.ok) { targetSummary.textContent = '加载目标群组失败'; showToast(data.detail || '加载目标群组失败'); return; }
+        const targets = Array.isArray(data.targets) ? data.targets.filter((item) => item && item.bot_can_manage === true) : [];
+        targetSelect.innerHTML = '<option value="">全部可维护群组</option>';
         targets.forEach((item) => {
             const option = document.createElement('option');
             option.value = item.token || '';
-            const verify = formatVerifySource(item);
-            let status = `${verify} 待校验`;
-            if (item.bot_can_manage === false) {
-                status = `${verify} 不可维护:${item.bot_status || 'unknown'}`;
-            } else if (item.bot_status && item.bot_status !== 'unchecked') {
-                status = `${verify} 可维护:${item.bot_status}`;
-            }
-            option.textContent = `${item.title || item.token || '未命名'} [${item.token}] (${status})`;
-            option.disabled = item.bot_can_manage === false;
+            option.textContent = `${item.title || item.token || '未命名'} [${item.token}]`;
             targetSelect.appendChild(option);
         });
-
-        if (manageableCount > 0) {
-            targetSelect.value = '';
-            targetSummary.textContent = `发现 ${targets.length} 个群组/频道，可维护 ${manageableCount} 个。可选择单个群组执行维护，系统会在执行时再次校验 Bot 管理员权限。`;
-        } else {
-            targetSummary.textContent = '未发现 Bot 可维护的群组/频道，请确认 Bot 已加入并具备管理员权限。';
-            showToast('未发现可维护群组，请检查 Bot 权限');
-        }
+        targetSummary.textContent = targets.length
+            ? `已加载 ${targets.length} 个可维护群组，可对单群组或全部群组执行维护。`
+            : '未发现可维护群组，请检查 Bot 权限。';
     }
 
     async function callTool(endpoint, confirmText, successText) {
         const token = getToken();
-        if (!token) {
-            redirectToLogin();
-            return;
-        }
+        if (!token) { redirectToLogin(); return; }
         const target = getSelectedTarget();
-        const targetLabel = getSelectedTargetLabel();
-        const message = target
-            ? `${confirmText}\n目标：${targetLabel}`
-            : `${confirmText}\n目标：全部可维护群组`;
-        if (confirmText && !confirm(message)) {
-            return;
-        }
+        const message = `${confirmText}\n目标：${target ? getSelectedTargetLabel() : '全部可维护群组'}`;
+        if (confirmText && !confirm(message)) return;
         const resp = await fetch(endpoint, {
             method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ target })
         });
-        if (resp.status === 401) {
-            redirectToLogin();
-            return;
-        }
+        if (resp.status === 401) { redirectToLogin(); return; }
         const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) {
-            showToast(data.detail || '执行失败');
-            return;
-        }
+        if (!resp.ok) { showToast(data.detail || '执行失败'); return; }
         showToast(successText || data.message || '已执行');
     }
 
-    document.getElementById('fixTagCountBtn').addEventListener('click', () => {
-        callTool('/api/tools/fix_tag_count', '确认同步补标签数量？', '已发送补标签数量设置');
-    });
-    document.getElementById('reloadTagsBtn').addEventListener('click', () => {
-        callTool('/api/tools/reload_tags', '确认执行标签更新？', '已发送标签更新指令');
-    });
-    document.getElementById('reloadSystemBtn').addEventListener('click', () => {
-        callTool('/api/tools/reload_system', '确认重置系统状态？', '已发送系统重置指令');
-    });
-
-    refreshTargetsBtn.addEventListener('click', () => loadTargets(true));
-    loadTargets(false);
+    document.getElementById('fixTagCountBtn').addEventListener('click', () => callTool('/api/tools/fix_tag_count', '确认同步补标签数量？', '已发送补标签数量设置'));
+    document.getElementById('reloadTagsBtn').addEventListener('click', () => callTool('/api/tools/reload_tags', '确认执行标签更新？', '已发送标签更新指令'));
+    document.getElementById('reloadSystemBtn').addEventListener('click', () => callTool('/api/tools/reload_system', '确认重置系统状态？', '已发送系统重置指令'));
+    document.getElementById('refreshTargetsBtn').addEventListener('click', () => loadTargets(true));
+    loadTargets();
 </script>
 {% endblock %}

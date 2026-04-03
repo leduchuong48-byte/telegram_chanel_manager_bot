@@ -1,240 +1,377 @@
 {% extends "base.html" %}
 
+{% block page_title %}标签工作台{% endblock %}
+{% block page_subtitle %}以分区卡片方式管理标签目录、重命名规则与 TG 输出预览。{% endblock %}
+{% block page_mode %}page-editor{% endblock %}
+
 {% block extra_head %}
 <style>
-    .tags-layout {
+    .tags-workbench {
         display: grid;
-        grid-template-columns: 260px 1fr;
+        grid-template-columns: 260px minmax(0, 1fr) 360px;
         gap: 18px;
+        align-items: start;
+        min-height: 0;
     }
 
-    .panel {
-        background: rgba(12, 20, 30, 0.72);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 20px;
+    .workbench-panel {
+        background: var(--bg-panel);
+        border: 1px solid var(--border-soft);
+        border-radius: var(--radius-panel);
+        box-shadow: var(--shadow-panel);
         padding: 18px;
-        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.4);
         display: flex;
         flex-direction: column;
-        gap: 12px;
-        min-height: 70vh;
+        gap: 14px;
+        min-height: 0;
     }
 
-    .panel-header {
+    .resource-panel,
+    .preview-panel {
+        position: sticky;
+        top: 0;
+        max-height: calc(100vh - 162px);
+    }
+
+    .panel-head {
         display: flex;
-        align-items: center;
         justify-content: space-between;
-        font-size: 14px;
-        font-weight: 600;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .panel-kicker {
+        font-size: 12px;
+        color: var(--text-faint);
+        letter-spacing: 0.02em;
+    }
+
+    .panel-label {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+    }
+
+    .panel-note,
+    .section-note,
+    .muted,
+    .hint,
+    .preview-meta {
+        font-size: 12px;
+        color: var(--text-faint);
+    }
+
+    .group-search,
+    .group-create input,
+    .toolbar-input,
+    .section-title-input,
+    .section-add-input,
+    .editor-input,
+    .editor-select,
+    .raw-textarea {
+        width: 100%;
+        border: 1px solid var(--border-soft);
+        background: rgba(255, 255, 255, 0.84);
+        color: var(--text);
+        border-radius: var(--radius-control);
+        padding: 11px 13px;
+        font-size: 13px;
+        outline: none;
+        transition: border-color var(--normal) ease, box-shadow var(--normal) ease, background var(--normal) ease;
+    }
+
+    .group-search:focus,
+    .group-create input:focus,
+    .toolbar-input:focus,
+    .section-title-input:focus,
+    .section-add-input:focus,
+    .editor-input:focus,
+    .editor-select:focus,
+    .raw-textarea:focus {
+        border-color: rgba(0, 113, 227, 0.32);
+        box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.08);
+        background: rgba(255, 255, 255, 0.96);
+    }
+
+    .resource-scroll,
+    .preview-scroll {
+        overflow-y: auto;
+        min-height: 0;
+        padding-right: 4px;
     }
 
     .group-list {
         display: flex;
         flex-direction: column;
         gap: 8px;
-        overflow-y: auto;
-        padding-right: 4px;
-    }
-
-    .group-search-input {
-        background: rgba(8, 14, 22, 0.85);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 10px;
-        padding: 8px 10px;
-        color: var(--text);
-        font-size: 12px;
-        outline: none;
-    }
-
-    .group-search-meta {
-        color: var(--muted);
-        font-size: 11px;
     }
 
     .group-item {
-        padding: 10px 12px;
-        border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.04);
+        padding: 11px 12px;
+        border-radius: 16px;
+        border: 1px solid transparent;
+        background: rgba(15, 23, 42, 0.03);
         color: var(--text);
         font-size: 13px;
         cursor: pointer;
-        transition: background 0.2s ease, transform 0.2s ease;
-    }
-
-    .group-item.active {
-        background: rgba(10, 132, 255, 0.18);
-        border-color: rgba(10, 132, 255, 0.4);
+        transition: background var(--normal) ease, border-color var(--normal) ease, transform var(--fast) ease;
     }
 
     .group-item:hover {
-        background: rgba(255, 255, 255, 0.08);
         transform: translateX(2px);
+        background: rgba(15, 23, 42, 0.05);
+        border-color: var(--border-soft);
     }
 
-    .group-item-title {
-        font-size: 13px;
-        color: var(--text);
+    .group-item.active {
+        background: var(--accent-soft);
+        border-color: rgba(0, 113, 227, 0.2);
+    }
+
+    .group-item-title,
+    .group-item-sub {
+        white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        white-space: nowrap;
     }
 
     .group-item-sub {
-        margin-top: 2px;
+        margin-top: 3px;
         font-size: 11px;
-        color: var(--muted);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        color: var(--text-faint);
     }
 
-    .group-create {
-        margin-top: auto;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .group-create input {
-        background: rgba(8, 14, 22, 0.85);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 12px;
-        padding: 10px 12px;
-        color: var(--text);
-        font-size: 13px;
-        outline: none;
-    }
-
-    .editor-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        flex-wrap: wrap;
-    }
-
-    .group-name-input {
-        font-size: 18px;
-        font-weight: 600;
-        background: transparent;
-        border: none;
-        color: var(--text);
-        outline: none;
-        padding: 0;
-        min-width: 220px;
-    }
-
-    .editor-sub {
-        font-size: 12px;
-        color: var(--muted);
-        margin-top: 4px;
-    }
-
+    .group-create,
+    .inline-row,
+    .toolbar-row,
+    .section-actions,
     .editor-actions {
         display: flex;
         gap: 10px;
+        align-items: center;
         flex-wrap: wrap;
     }
 
-    .tags-textarea {
-        background: rgba(8, 14, 22, 0.85);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 14px;
-        padding: 12px;
-        min-height: 360px;
-        width: 100%;
-        resize: vertical;
-        color: var(--text);
-        font-size: 13px;
-        font-family: "JetBrains Mono", "Fira Code", monospace;
-        line-height: 1.5;
-        outline: none;
-    }
-
-    .hint {
-        font-size: 12px;
-        color: var(--muted);
-    }
-
-    .alias-panel {
-        margin-top: 4px;
-        padding-top: 10px;
-        border-top: 1px dashed rgba(255, 255, 255, 0.12);
+    .workspace {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 18px;
+        min-width: 0;
     }
 
-    .alias-controls {
+    .workspace-header {
         display: grid;
-        grid-template-columns: 180px 1fr 1fr auto;
-        gap: 8px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 16px;
         align-items: center;
     }
 
-    .alias-controls input,
-    .alias-controls select {
-        background: rgba(8, 14, 22, 0.85);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 10px;
-        padding: 9px 10px;
-        color: var(--text);
-        font-size: 13px;
-        outline: none;
+    .workspace-toolbar {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
     }
 
-    .alias-list {
-        max-height: 220px;
-        overflow-y: auto;
+    .sections-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 16px;
+    }
+
+    .section-card {
+        background: rgba(255, 255, 255, 0.58);
+        border: 1px solid var(--border-soft);
+        border-radius: 20px;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 240px;
+    }
+
+    .section-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .section-title-wrap {
         display: flex;
         flex-direction: column;
         gap: 6px;
-        padding-right: 2px;
+        min-width: 0;
     }
 
-    .alias-item {
+    .section-chips {
         display: flex;
-        align-items: center;
-        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-content: flex-start;
+    }
+
+    .tag-chip {
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+        cursor: pointer;
+        transition: transform var(--fast) ease, border-color var(--normal) ease, background var(--normal) ease, box-shadow var(--normal) ease;
+    }
+
+    .tag-chip:hover {
+        transform: translateY(-1px);
+        border-color: rgba(0, 113, 227, 0.2);
+        box-shadow: 0 8px 16px rgba(15, 23, 42, 0.06);
+    }
+
+    .tag-chip.alias {
+        border-color: rgba(0, 113, 227, 0.18);
+        background: rgba(0, 113, 227, 0.08);
+        color: #0058b9;
+    }
+
+    .tag-chip.global-rule {
+        border-color: rgba(10, 127, 82, 0.18);
+        background: rgba(10, 127, 82, 0.08);
+        color: #0a7f52;
+    }
+
+    .tag-chip.active {
+        border-color: rgba(0, 113, 227, 0.34);
+        background: rgba(0, 113, 227, 0.12);
+        box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.08);
+    }
+
+    .tag-chip.multi-selected {
+        border-color: rgba(10, 127, 82, 0.34);
+        background: rgba(10, 127, 82, 0.12);
+        box-shadow: 0 0 0 4px rgba(10, 127, 82, 0.08);
+        color: #0a7f52;
+    }
+
+    .section-editor-slot {
+        display: none;
+        margin-top: 2px;
+    }
+
+    .section-editor-slot.show {
+        display: block;
+    }
+
+    .section-editor-slot.show .tag-editor {
+        box-shadow: 0 10px 24px rgba(0, 113, 227, 0.12);
+        border-color: rgba(0, 113, 227, 0.22);
+    }
+
+    .editor-kicker {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--accent);
+        letter-spacing: 0.02em;
+    }
+
+    .section-editor-slot.show {
+        display: block;
+    }
+
+    .section-editor-slot.show .tag-editor {
+        box-shadow: 0 10px 24px rgba(0, 113, 227, 0.12);
+        border-color: rgba(0, 113, 227, 0.22);
+    }
+
+    .tag-editor {
+        background: rgba(248, 250, 252, 0.92);
+        border: 1px solid rgba(0, 113, 227, 0.16);
+        border-radius: 18px;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .tag-editor-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
-        padding: 8px 10px;
-        border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.04);
     }
 
-    .alias-item code {
-        font-family: "JetBrains Mono", "Fira Code", monospace;
+    .editor-target-wrap {
+        display: none;
+    }
+
+    .editor-target-wrap.show {
+        display: block;
+    }
+
+    .raw-panel {
+        display: none;
+        border-top: 1px solid var(--border-soft);
+        padding-top: 14px;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .raw-panel.show {
+        display: flex;
+    }
+
+    .raw-textarea {
+        min-height: 200px;
+        resize: vertical;
+        font-family: "SFMono-Regular", "JetBrains Mono", monospace;
+        line-height: 1.55;
+    }
+
+    .preview-card {
+        background: rgba(255, 255, 255, 0.82);
+        border: 1px solid var(--border-soft);
+        border-radius: 18px;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .preview-block {
+        background: rgba(248, 250, 252, 0.92);
+        border: 1px solid var(--border-soft);
+        border-radius: 14px;
+        padding: 12px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: "SFMono-Regular", "JetBrains Mono", monospace;
         font-size: 12px;
+        line-height: 1.55;
+        color: var(--text-soft);
     }
 
-    .alias-meta {
-        font-size: 11px;
-        color: var(--muted);
-        margin-left: 8px;
-    }
-
-    .alias-empty {
-        color: var(--muted);
+    .empty-state {
+        padding: 18px 0;
+        color: var(--text-faint);
         font-size: 12px;
-        padding: 6px 2px;
     }
 
     .toast {
         position: fixed;
-        bottom: 24px;
         right: 24px;
-        background: rgba(12, 20, 30, 0.92);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: var(--text);
-        padding: 12px 18px;
-        border-radius: 12px;
-        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.45);
+        bottom: 24px;
+        padding: 12px 16px;
+        border-radius: 16px;
+        background: rgba(15, 23, 42, 0.92);
+        color: #fff;
+        font-size: 13px;
+        box-shadow: 0 18px 36px rgba(15, 23, 42, 0.18);
         opacity: 0;
         transform: translateY(8px);
-        transition: all 0.2s ease;
+        transition: all var(--normal) ease;
         pointer-events: none;
+        max-width: 340px;
     }
 
     .toast.show {
@@ -243,74 +380,120 @@
     }
 
     .btn-danger {
-        color: #ff8b8b;
-        border: 1px solid rgba(255, 59, 48, 0.3);
-        background: rgba(255, 59, 48, 0.12);
+        color: var(--danger);
+        border-color: rgba(201, 52, 47, 0.18);
+        background: rgba(201, 52, 47, 0.06);
     }
 
-    .btn-danger:hover {
-        background: rgba(255, 59, 48, 0.2);
+    @media (max-width: 1380px) {
+        .tags-workbench {
+            grid-template-columns: 240px minmax(0, 1fr);
+        }
+
+        .preview-panel {
+            position: static;
+            grid-column: 1 / -1;
+            max-height: none;
+        }
     }
 
-    @media (max-width: 960px) {
-        .tags-layout {
+    @media (max-width: 1040px) {
+        .tags-workbench {
             grid-template-columns: 1fr;
         }
 
-        .alias-controls {
+        .resource-panel,
+        .preview-panel {
+            position: static;
+            max-height: none;
+        }
+    }
+
+    @media (max-width: 680px) {
+        .workspace-header,
+        .tag-editor-grid,
+        .section-add-row,
+        .group-create {
             grid-template-columns: 1fr;
+            flex-direction: column;
+            align-items: stretch;
         }
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="tags-layout">
-    <aside class="panel">
-        <div class="panel-header">
-            <span>标签组列表</span>
+<div class="tags-workbench">
+    <aside class="workbench-panel resource-panel">
+        <div class="panel-head">
+            <div>
+                <div class="panel-kicker">Resources</div>
+                <div class="panel-label">被管理群组</div>
+            </div>
             <button class="btn" id="refreshBtn">刷新</button>
         </div>
-        <input id="groupSearchInput" class="group-search-input" type="text" placeholder="搜索群名或 chat_id">
-        <div class="group-search-meta" id="groupSearchMeta">显示 0 / 0</div>
-        <div class="group-list" id="groupList"></div>
+        <input id="groupSearchInput" class="group-search" type="text" placeholder="搜索群名或 chat_id">
+        <div class="muted" id="groupSearchMeta">显示 0 / 0</div>
+        <div class="resource-scroll">
+            <div class="group-list" id="groupList"></div>
+        </div>
         <div class="group-create">
-            <input id="newGroupName" type="text" placeholder="新组名称">
+            <input id="newGroupName" type="text" placeholder="新组名称 / chat_id">
             <button class="btn btn-primary" id="createGroupBtn">新建组</button>
         </div>
     </aside>
-    <section class="panel">
-        <div class="editor-header">
-            <div>
-                <input id="groupNameInput" class="group-name-input" placeholder="未选择组" value="" />
-                <div class="editor-sub" id="currentGroupSub">请选择或新建标签组</div>
+
+    <section class="workspace">
+        <div class="workbench-panel surface-strong">
+            <div class="workspace-header">
+                <div>
+                    <div class="panel-kicker">Workspace</div>
+                    <div class="panel-label">标签目录</div>
+                    <div class="panel-note" id="currentGroupSub">请选择或新建标签组</div>
+                </div>
+                <div class="workspace-toolbar">
+                    <button class="btn" id="renameGroupBtn">重命名组</button>
+                    <button class="btn" id="toggleRawBtn">高级模式</button>
+                    <button class="btn btn-primary" id="saveGroupBtn">保存目录</button>
+                    <button class="btn btn-danger" id="deleteGroupBtn">删除组</button>
+                </div>
             </div>
-            <div class="editor-actions">
-                <button class="btn btn-primary" id="saveGroupBtn">保存</button>
-                <button class="btn btn-danger" id="deleteGroupBtn">删除</button>
+            <div class="inline-row">
+                <input id="groupNameInput" class="toolbar-input" placeholder="未选择组" value="">
+                <div class="muted" id="groupModeBadge">未选择标签组</div>
             </div>
-        </div>
-        <textarea id="tagsInput" class="tags-textarea" placeholder="一行一个标签，或使用逗号分隔"></textarea>
-        <div class="hint">支持 #tag 或 tag，保存时会自动去重并转为小写。</div>
-        <div class="alias-panel">
-            <div class="panel-header">
-                <span>标签重命名规则（A = B）</span>
-                <button class="btn" id="refreshAliasBtn">刷新规则</button>
+            <div class="section-action-row">
+                <button class="btn btn-primary" id="addSectionBtn">+ 新增分区</button>
+                <span class="muted">点击标签后，在当前分区卡片底部编辑；右侧预览保持固定。</span>
             </div>
-            <div class="alias-controls">
-                <select id="aliasScope">
-                    <option value="chat">当前群组规则</option>
-                    <option value="global">全局规则</option>
-                    <option value="effective">当前群组生效规则(只读)</option>
-                </select>
-                <input id="aliasOldTag" type="text" placeholder="旧标签 A">
-                <input id="aliasNewTag" type="text" placeholder="新标签 B">
-                <button class="btn btn-primary" id="saveAliasBtn">保存规则</button>
+            <div class="sections-grid" id="sectionsGrid"></div>
+            <div class="raw-panel" id="rawPanel">
+                <div class="panel-label" style="font-size:14px;">高级模式 / 原始文本</div>
+                <div class="hint">兼容旧格式。失焦后会尝试回填到分区卡片。</div>
+                <textarea id="rawTextInput" class="raw-textarea" placeholder="原始标签文本将在此显示"></textarea>
             </div>
-            <div class="hint" id="aliasHint">提示：群组规则按当前选中的群组 ID 生效。</div>
-            <div class="alias-list" id="aliasList"></div>
         </div>
     </section>
+
+    <aside class="workbench-panel preview-panel">
+        <div class="panel-head">
+            <div>
+                <div class="panel-kicker">Preview</div>
+                <div class="panel-label">TG 预览</div>
+            </div>
+            <button class="btn" id="refreshPreviewBtn">刷新预览</button>
+        </div>
+        <div class="preview-scroll">
+            <div class="preview-card">
+                <div class="preview-meta" id="previewMeta">请选择群组后加载预览</div>
+                <div class="preview-block" id="previewBody">暂无预览</div>
+            </div>
+            <div class="preview-card">
+                <div class="panel-label" style="font-size:13px;">操作说明</div>
+                <div class="hint">标签重命名、分区移动、目录保存都以 Bot 共用数据为准。预览尽量贴近最终消息输出。</div>
+            </div>
+        </div>
+    </aside>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -325,25 +508,30 @@
     let isNewGroup = false;
     let groupSearchKeyword = '';
     let targetMetaByToken = {};
+    let currentSections = [];
+    let selectedTag = null;
+    let selectionModeBySection = {};
+    let selectedTagsBySection = {};
+    let previewData = null;
+    let currentAliasState = { chat: {}, global: {}, effective: {} };
 
     const groupList = document.getElementById('groupList');
     const groupSearchInput = document.getElementById('groupSearchInput');
     const groupSearchMeta = document.getElementById('groupSearchMeta');
     const groupNameInput = document.getElementById('groupNameInput');
     const currentGroupSub = document.getElementById('currentGroupSub');
+    const groupModeBadge = document.getElementById('groupModeBadge');
+    const sectionsGrid = document.getElementById('sectionsGrid');
+    const rawPanel = document.getElementById('rawPanel');
+    const rawTextInput = document.getElementById('rawTextInput');
+    const previewMeta = document.getElementById('previewMeta');
+    const previewBody = document.getElementById('previewBody');
     const toast = document.getElementById('toast');
-    const aliasScope = document.getElementById('aliasScope');
-    const aliasOldTagInput = document.getElementById('aliasOldTag');
-    const aliasNewTagInput = document.getElementById('aliasNewTag');
-    const aliasList = document.getElementById('aliasList');
-    const aliasHint = document.getElementById('aliasHint');
-    const saveAliasBtn = document.getElementById('saveAliasBtn');
-    const refreshAliasBtn = document.getElementById('refreshAliasBtn');
 
     function showToast(message) {
         toast.textContent = message;
         toast.classList.add('show');
-        setTimeout(() => toast.classList.remove('show'), 2400);
+        setTimeout(() => toast.classList.remove('show'), 2200);
     }
 
     function getToken() {
@@ -359,6 +547,10 @@
         return String(raw || '').trim().replace(/^#+/, '').toLowerCase();
     }
 
+    function deepClone(value) {
+        return JSON.parse(JSON.stringify(value));
+    }
+
     function parseGroupChatToken(raw) {
         const token = String(raw || '').trim();
         return /^-?\d+$/.test(token) ? token : null;
@@ -368,7 +560,8 @@
         const name = String(group?.name || '').trim();
         const chatToken = parseGroupChatToken(name);
         if (!chatToken) {
-            return { title: name || '未命名标签组', subtitle: '自定义标签组' };
+            const source = String(group?.source || 'saved');
+            return { title: name || '未命名标签组', subtitle: source === 'managed' ? '被管理群组（未建目录）' : '自定义标签组' };
         }
         const meta = targetMetaByToken[chatToken] || null;
         const title = String(meta?.title || '').trim() || chatToken;
@@ -388,336 +581,109 @@
         return haystack.includes(keyword);
     }
 
-    function createLocalTagify(inputEl) {
-        let tags = [];
-        const listeners = { change: [] };
+    function buildTargetOptionsMarkup(selectedValue = '') {
+        const options = ['<option value="">请选择目标群组</option>'];
+        Object.entries(targetMetaByToken).forEach(([token, meta]) => {
+            const selected = selectedValue === token ? ' selected' : '';
+            options.push(`<option value="${token}"${selected}>${meta.title || token} [${token}]</option>`);
+        });
+        return options.join('');
+    }
 
-        function normalizeAndDedupe(rawList) {
-            const seen = new Set();
-            const out = [];
-            rawList.forEach((item) => {
-                const cleaned = normalizeTag(item);
+    async function loadAliasState() {
+        currentAliasState = { chat: {}, global: {}, effective: {} };
+        const current = parseGroupChatToken(currentGroupName);
+        if (!current) return;
+        try {
+            const [chatPayload, globalPayload] = await Promise.all([
+                fetchJson(`/api/tags/aliases?scope=chat&chat_id=${current}`),
+                fetchJson('/api/tags/aliases?scope=global'),
+            ]);
+            (chatPayload.rules || []).forEach((rule) => { currentAliasState.chat[rule.old_tag] = rule.new_tag; });
+            (globalPayload.rules || []).forEach((rule) => { currentAliasState.global[rule.old_tag] = rule.new_tag; });
+        } catch (error) {
+            showToast(error.message || '加载规则状态失败');
+        }
+    }
+
+    async function fetchJson(url, options = {}) {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            throw new Error('unauthorized');
+        }
+        const headers = Object.assign({}, options.headers || {}, { Authorization: `Bearer ${token}` });
+        const resp = await fetch(url, Object.assign({}, options, { headers }));
+        if (resp.status === 401) {
+            redirectToLogin();
+            throw new Error('unauthorized');
+        }
+        const payload = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            throw new Error(payload.detail || payload.message || '请求失败');
+        }
+        return payload;
+    }
+
+    async function loadTargetMeta() {
+        const payload = await fetchJson('/api/tools/targets');
+        const rows = Array.isArray(payload.targets)
+            ? payload.targets.filter((row) => row && row.bot_can_manage === true)
+            : [];
+        const next = {};
+        rows.forEach((row) => {
+            const tokenValue = String(row.token || '').trim();
+            if (!tokenValue) return;
+            next[tokenValue] = {
+                title: String(row.title || '').trim(),
+                chat_type: String(row.chat_type || '').trim(),
+            };
+        });
+        targetMetaByToken = next;
+    }
+
+    function updateGroupModeBadge() {
+        if (!currentGroupName && !groupNameInput.value.trim()) {
+            groupModeBadge.textContent = '未选择标签组';
+            return;
+        }
+        groupModeBadge.textContent = isNewGroup ? '新建标签组' : '现有标签组';
+    }
+
+    function buildFlatTagsFromSections(sections) {
+        const seen = new Set();
+        const out = [];
+        (sections || []).forEach((section) => {
+            (section.tags || []).forEach((tag) => {
+                const cleaned = normalizeTag(tag);
                 if (!cleaned || seen.has(cleaned)) return;
                 seen.add(cleaned);
                 out.push(cleaned);
             });
-            return out;
-        }
-
-        function parseInput(raw) {
-            return normalizeAndDedupe(String(raw || '').split(/[\n\r,，;\t ]+/));
-        }
-
-        function emitChange() {
-            listeners.change.forEach((fn) => {
-                try {
-                    fn();
-                } catch (_) {
-                    // ignore listener errors
-                }
-            });
-        }
-
-        function render() {
-            inputEl.value = tags.join('\n');
-        }
-
-        inputEl.addEventListener('input', () => {
-            tags = parseInput(inputEl.value);
-            emitChange();
         });
-        inputEl.addEventListener('blur', () => {
-            tags = parseInput(inputEl.value);
-            render();
-            emitChange();
+        return out;
+    }
+
+    function syncRawEditor() {
+        if (!currentSections.length) {
+            rawTextInput.value = '';
+            return;
+        }
+        const blocks = currentSections.map((section) => {
+            const lines = [`-------${section.name}--------`];
+            (section.tags || []).forEach((tag) => lines.push(`#${tag}`));
+            return lines.join('\n');
         });
-
-        return {
-            get value() {
-                return tags.map((value) => ({ value }));
-            },
-            removeAllTags() {
-                tags = [];
-                render();
-                emitChange();
-            },
-            addTags(list) {
-                tags = normalizeAndDedupe(Array.isArray(list) ? list : []);
-                render();
-                emitChange();
-            },
-            on(eventName, callback) {
-                if (!listeners[eventName]) listeners[eventName] = [];
-                listeners[eventName].push(callback);
-            }
-        };
+        rawTextInput.value = `${blocks.join('\n\n')}\n`;
     }
 
-    const tagify = createLocalTagify(document.getElementById('tagsInput'));
-
-    async function loadTargetMeta() {
-        const token = getToken();
-        if (!token) {
-            redirectToLogin();
-            return false;
-        }
-        const resp = await fetch('/api/tools/targets', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (resp.status === 401) {
-            redirectToLogin();
-            return false;
-        }
-        if (!resp.ok) {
-            targetMetaByToken = {};
-            return true;
-        }
-        const payload = await resp.json().catch(() => ({}));
-        const next = {};
-        const rows = Array.isArray(payload?.targets) ? payload.targets : [];
-        rows.forEach((row) => {
-            const tokenValue = String(row?.token || '').trim();
-            if (!tokenValue) return;
-            next[tokenValue] = {
-                title: String(row?.title || '').trim(),
-                chat_type: String(row?.chat_type || '').trim(),
-            };
-        });
-        targetMetaByToken = next;
-        return true;
-    }
-
-    function resolveCurrentChatId() {
-        const raw = String(originalGroupName || currentGroupName || groupNameInput.value || '').trim();
-        if (!/^-?\d+$/.test(raw)) {
-            return null;
-        }
-        return Number(raw);
-    }
-
-    function updateAliasHint() {
-        const scope = aliasScope.value;
-        const chatId = resolveCurrentChatId();
-        if (scope === 'global') {
-            aliasHint.textContent = '当前为全局规则：对所有群组生效（冲突时全局优先）。';
-            return;
-        }
-        if (scope === 'effective') {
-            if (chatId === null) {
-                aliasHint.textContent = '当前标签组名不是群组 ID，无法查看群组生效规则。';
-            } else {
-                aliasHint.textContent = `当前为生效规则（只读）：chat_id=${chatId}，已合并群组+全局。`;
-            }
-            return;
-        }
-        if (chatId === null) {
-            aliasHint.textContent = '当前标签组名不是群组 ID，无法设置群组规则。请切换全局规则或选择群组 ID 标签组。';
-        } else {
-            aliasHint.textContent = `当前为群组规则：仅对 chat_id=${chatId} 生效。`;
-        }
-    }
-
-    function renderAliasRules(rules) {
-        aliasList.innerHTML = '';
-        if (!Array.isArray(rules) || !rules.length) {
-            const empty = document.createElement('div');
-            empty.className = 'alias-empty';
-            empty.textContent = '暂无规则';
-            aliasList.appendChild(empty);
-            return;
-        }
-
-        const scope = aliasScope.value;
-        rules.forEach((rule) => {
-            const row = document.createElement('div');
-            row.className = 'alias-item';
-
-            const left = document.createElement('div');
-            const code = document.createElement('code');
-            code.textContent = `#${rule.old_tag}=#${rule.new_tag}`;
-            left.appendChild(code);
-            if (rule.source) {
-                const meta = document.createElement('span');
-                meta.className = 'alias-meta';
-                meta.textContent = `来源: ${rule.source}`;
-                left.appendChild(meta);
-            }
-            row.appendChild(left);
-
-            if (scope !== 'effective') {
-                const del = document.createElement('button');
-                del.className = 'btn btn-danger';
-                del.textContent = '删除';
-                del.onclick = () => deleteAliasRule(rule.old_tag);
-                row.appendChild(del);
-            }
-            aliasList.appendChild(row);
-        });
-    }
-
-    function setAliasEditorReadOnly(readonly) {
-        aliasOldTagInput.disabled = readonly;
-        aliasNewTagInput.disabled = readonly;
-        saveAliasBtn.disabled = readonly;
-    }
-
-    async function loadAliasRules() {
-        const token = getToken();
-        if (!token) {
-            redirectToLogin();
-            return;
-        }
-        const scope = aliasScope.value;
-        const params = new URLSearchParams();
-        params.set('scope', scope);
-        const chatId = resolveCurrentChatId();
-        if (scope !== 'global') {
-            if (chatId === null) {
-                setAliasEditorReadOnly(true);
-                renderAliasRules([]);
-                updateAliasHint();
-                return;
-            }
-            params.set('chat_id', String(chatId));
-        }
-
-        setAliasEditorReadOnly(scope === 'effective');
-        updateAliasHint();
-
-        const resp = await fetch(`/api/tags/aliases?${params.toString()}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (resp.status === 401) {
-            redirectToLogin();
-            return;
-        }
-        const payload = await resp.json().catch(() => ({}));
-        if (!resp.ok) {
-            renderAliasRules([]);
-            showToast(payload.detail || '加载重命名规则失败');
-            return;
-        }
-        renderAliasRules(payload.rules || []);
-    }
-
-    async function saveAliasRule() {
-        const token = getToken();
-        if (!token) {
-            redirectToLogin();
-            return;
-        }
-        const scope = aliasScope.value;
-        if (scope === 'effective') {
-            showToast('生效规则为只读视图，不能直接保存');
-            return;
-        }
-
-        const oldTag = normalizeTag(aliasOldTagInput.value);
-        const newTag = normalizeTag(aliasNewTagInput.value);
-        if (!oldTag || !newTag) {
-            showToast('请输入旧标签和新标签');
-            return;
-        }
-        if (oldTag === newTag) {
-            showToast('旧标签与新标签相同，无需设置');
-            return;
-        }
-
-        const body = { scope, old_tag: oldTag, new_tag: newTag };
-        if (scope === 'chat') {
-            const chatId = resolveCurrentChatId();
-            if (chatId === null) {
-                showToast('当前标签组名不是群组 ID，无法设置群组规则');
-                return;
-            }
-            body.chat_id = chatId;
-        }
-
-        const resp = await fetch('/api/tags/aliases', {
-            method: 'PUT',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(body)
-        });
-        if (resp.status === 401) {
-            redirectToLogin();
-            return;
-        }
-        const payload = await resp.json().catch(() => ({}));
-        if (!resp.ok) {
-            showToast(payload.detail || '保存重命名规则失败');
-            return;
-        }
-        aliasOldTagInput.value = '';
-        aliasNewTagInput.value = '';
-        showToast(payload.message || '重命名规则已保存');
-        await loadAliasRules();
-    }
-
-    async function deleteAliasRule(oldTag) {
-        const token = getToken();
-        if (!token) {
-            redirectToLogin();
-            return;
-        }
-        const scope = aliasScope.value;
-        if (scope === 'effective') {
-            showToast('生效规则为只读视图，不能删除');
-            return;
-        }
-        const clean = normalizeTag(oldTag);
-        if (!clean) {
-            return;
-        }
-        if (!confirm(`确认删除重命名规则 #${clean} ?`)) {
-            return;
-        }
-        const params = new URLSearchParams();
-        params.set('scope', scope);
-        params.set('old_tag', clean);
-        if (scope === 'chat') {
-            const chatId = resolveCurrentChatId();
-            if (chatId === null) {
-                showToast('当前标签组名不是群组 ID，无法删除群组规则');
-                return;
-            }
-            params.set('chat_id', String(chatId));
-        }
-        const resp = await fetch(`/api/tags/aliases?${params.toString()}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (resp.status === 401) {
-            redirectToLogin();
-            return;
-        }
-        const payload = await resp.json().catch(() => ({}));
-        if (!resp.ok) {
-            showToast(payload.detail || '删除重命名规则失败');
-            return;
-        }
-        showToast(payload.message || '重命名规则已删除');
-        await loadAliasRules();
-    }
-
-    function getTagValues() {
-        const seen = new Set();
-        const tags = [];
-        tagify.value.forEach((item) => {
-            const cleaned = normalizeTag(item.value);
-            if (!cleaned || seen.has(cleaned)) return;
-            seen.add(cleaned);
-            tags.push(cleaned);
-        });
-        return tags;
-    }
-
-    function updateSubTitle() {
+    function updateSubtitle() {
+        const total = buildFlatTagsFromSections(currentSections).length;
         currentGroupSub.textContent = currentGroupName
-            ? `共 ${tagify.value.length} 个标签`
+            ? `组名：${currentGroupName} · ${currentSections.length} 个分区 · ${total} 个标签`
             : '请选择或新建标签组';
+        updateGroupModeBadge();
+        syncRawEditor();
     }
 
     function renderGroups() {
@@ -725,79 +691,537 @@
         const keyword = groupSearchKeyword.trim().toLowerCase();
         const filtered = groups.filter((group) => matchesGroupSearch(group, keyword));
         renderGroupSearchMeta(filtered.length, groups.length);
-        if (!groups.length) {
-            const empty = document.createElement('div');
-            empty.style.color = 'var(--muted)';
-            empty.style.fontSize = '12px';
-            empty.textContent = '暂无标签组';
-            groupList.appendChild(empty);
-            return;
-        }
         if (!filtered.length) {
             const empty = document.createElement('div');
-            empty.style.color = 'var(--muted)';
-            empty.style.fontSize = '12px';
-            empty.textContent = '没有匹配的标签组';
+            empty.className = 'empty-state';
+            empty.textContent = groups.length ? '没有匹配的标签组' : '暂无标签组';
             groupList.appendChild(empty);
             return;
         }
         filtered.forEach((group) => {
             const item = document.createElement('div');
             item.className = 'group-item' + (originalGroupName === group.name ? ' active' : '');
-
             const meta = getGroupDisplayMeta(group);
-            const titleEl = document.createElement('div');
-            titleEl.className = 'group-item-title';
-            titleEl.textContent = meta.title;
-            item.appendChild(titleEl);
-
-            const subEl = document.createElement('div');
-            subEl.className = 'group-item-sub';
-            subEl.textContent = meta.subtitle;
-            item.appendChild(subEl);
-
+            item.innerHTML = `<div class="group-item-title">${meta.title}</div><div class="group-item-sub">${meta.subtitle}</div>`;
             item.onclick = () => selectGroup(group.name);
             groupList.appendChild(item);
         });
     }
 
+    function makeEmptySection(name = '新分区') {
+        return { name, tags: [] };
+    }
+
+    function isSectionSelectionMode(sectionIndex) {
+        return !!selectionModeBySection[sectionIndex];
+    }
+
+    function getSelectedTags(sectionIndex) {
+        return Array.isArray(selectedTagsBySection[sectionIndex]) ? selectedTagsBySection[sectionIndex] : [];
+    }
+
+    function toggleSectionSelectionMode(sectionIndex) {
+        if (isSectionSelectionMode(sectionIndex)) {
+            selectionModeBySection[sectionIndex] = false;
+            selectedTagsBySection[sectionIndex] = [];
+        } else {
+            selectionModeBySection[sectionIndex] = true;
+            selectedTag = null;
+            selectedTagsBySection[sectionIndex] = [];
+        }
+        renderSections();
+    }
+
+    function toggleMultiSelectTag(tag, sectionIndex) {
+        const current = getSelectedTags(sectionIndex).slice();
+        const idx = current.indexOf(tag);
+        if (idx >= 0) current.splice(idx, 1);
+        else current.push(tag);
+        selectedTagsBySection[sectionIndex] = current;
+        renderSections();
+    }
+
+    function startTagEdit(tag, sectionIndex) {
+        if (isSectionSelectionMode(sectionIndex)) {
+            toggleMultiSelectTag(tag, sectionIndex);
+            return;
+        }
+        selectedTag = { tag, sectionIndex };
+        renderSections();
+    }
+
+    async function saveAliasRule({ tag, scope, target, newTag }) {
+        const cleanNew = normalizeTag(newTag);
+        if (!cleanNew) {
+            showToast('请输入新的标签名');
+            return;
+        }
+        const body = { old_tag: tag, new_tag: cleanNew, scope: 'chat' };
+        if (scope === 'global') {
+            body.scope = 'global';
+        } else if (scope === 'target') {
+            const token = String(target || '').trim();
+            if (!token) {
+                showToast('请选择目标群组');
+                return;
+            }
+            body.scope = 'chat';
+            body.chat_id = Number(token);
+        } else {
+            const current = parseGroupChatToken(currentGroupName);
+            if (!current) {
+                showToast('当前群组不是 chat_id，无法写入群组规则');
+                return;
+            }
+            body.scope = 'chat';
+            body.chat_id = Number(current);
+        }
+        try {
+            const payload = await fetchJson('/api/tags/aliases', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            showToast(payload.message || '规则已保存');
+            await refreshPreview();
+        } catch (error) {
+            showToast(error.message || '保存失败');
+        }
+    }
+
+    async function mergeSelectedTags(sectionIndex, scope, target, newTag) {
+        const cleanNew = normalizeTag(newTag);
+        const selected = getSelectedTags(sectionIndex);
+        if (!cleanNew) { showToast('请输入目标标签'); return; }
+        if (!selected.length) { showToast('请至少选择一个标签'); return; }
+        const oldTags = selected.filter((tag) => tag !== cleanNew);
+        if (!oldTags.length) { showToast('目标标签已在所选标签中，无需写入自映射'); return; }
+        try {
+            for (const oldTag of oldTags) {
+                const body = { old_tag: oldTag, new_tag: cleanNew, scope: 'chat' };
+                if (scope === 'global') {
+                    body.scope = 'global';
+                } else if (scope === 'target') {
+                    const token = String(target || '').trim();
+                    if (!token) { showToast('请选择目标群组'); return; }
+                    body.scope = 'chat';
+                    body.chat_id = Number(token);
+                } else {
+                    const current = parseGroupChatToken(currentGroupName);
+                    if (!current) { showToast('当前群组不是 chat_id，无法写入群组规则'); return; }
+                    body.scope = 'chat';
+                    body.chat_id = Number(current);
+                }
+                await fetchJson('/api/tags/aliases', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+            }
+            showToast(`已将 ${oldTags.length} 个标签合并到 #${cleanNew}`);
+            selectionModeBySection[sectionIndex] = false;
+            selectedTagsBySection[sectionIndex] = [];
+            await refreshPreview();
+            renderSections();
+        } catch (error) {
+            showToast(error.message || '批量合并失败');
+        }
+    }
+
+    async function deleteAliasRule({ tag, scope, target }) {
+        const params = new URLSearchParams();
+        params.set('old_tag', tag);
+        if (scope === 'global') {
+            params.set('scope', 'global');
+        } else if (scope === 'target') {
+            const token = String(target || '').trim();
+            if (!token) {
+                showToast('请选择目标群组');
+                return;
+            }
+            params.set('scope', 'chat');
+            params.set('chat_id', token);
+        } else {
+            const current = parseGroupChatToken(currentGroupName);
+            if (!current) {
+                showToast('当前群组不是 chat_id，无法删除群组规则');
+                return;
+            }
+            params.set('scope', 'chat');
+            params.set('chat_id', current);
+        }
+        try {
+            const payload = await fetchJson(`/api/tags/aliases?${params.toString()}`, { method: 'DELETE' });
+            showToast(payload.message || '规则已删除');
+            await refreshPreview();
+        } catch (error) {
+            showToast(error.message || '删除失败');
+        }
+    }
+
+    function moveTagToSection(tag, sectionIndex, targetIndexRaw) {
+        const targetIndex = Number(targetIndexRaw);
+        if (!Number.isFinite(targetIndex) || targetIndex < 0 || targetIndex >= currentSections.length) {
+            showToast('请选择目标分区');
+            return;
+        }
+        if (targetIndex === sectionIndex) {
+            showToast('标签已在当前分区');
+            return;
+        }
+        currentSections[sectionIndex].tags = (currentSections[sectionIndex].tags || []).filter((item) => item !== tag);
+        const destination = currentSections[targetIndex].tags || [];
+        if (!destination.includes(tag)) destination.push(tag);
+        currentSections[targetIndex].tags = destination;
+        selectedTag = { tag, sectionIndex: targetIndex };
+        renderSections();
+        updateSubtitle();
+        refreshPreview();
+        showToast(`已移动 #${tag} 到分区 ${currentSections[targetIndex].name}`);
+    }
+
+    function renderSectionEditor(sectionIndex) {
+        if (isSectionSelectionMode(sectionIndex)) {
+            const selected = getSelectedTags(sectionIndex);
+            if (!selected.length) {
+                return '<div class="tag-editor"><div class="editor-kicker">批量合并模式</div><div class="muted">多选模式已开启，点击多个标签后在这里统一合并。</div></div>'
+            }
+            return `
+                <div class="tag-editor">
+                    <div class="editor-kicker">正在批量合并标签</div>
+                    <div class="muted">已选择 ${selected.length} 个标签</div>
+                    <div class="hint">${selected.map((tag) => `#${tag}`).join(' ')}</div>
+                    <input class="editor-input" data-role="merge-target" type="text" placeholder="合并到标签，例如 D">
+                    <div class="tag-editor-grid">
+                        <select class="editor-select" data-role="merge-scope">
+                            <option value="chat">当前群组</option>
+                            <option value="global">全局</option>
+                            <option value="target">指定目标群组</option>
+                        </select>
+                        <div class="editor-target-wrap" data-role="merge-target-wrap">
+                            <select class="editor-select" data-role="merge-target-select">${buildTargetOptionsMarkup()}</select>
+                        </div>
+                    </div>
+                    <div class="hint">会将所选标签批量写成 旧标签 -> 目标标签，自映射会自动跳过。</div>
+                    <div class="editor-actions">
+                        <button class="btn" data-role="clear-selection">清空选择</button>
+                        <button class="btn btn-primary" data-role="merge-selected">执行合并</button>
+                    </div>
+                </div>
+            `;
+        }
+        if (!selectedTag || selectedTag.sectionIndex !== sectionIndex) return '';
+        const tag = selectedTag.tag;
+        const currentChatRule = currentAliasState.chat[tag] || '';
+        const currentGlobalRule = currentAliasState.global[tag] || '';
+        const moveOptions = currentSections.map((section, idx) => idx === sectionIndex ? '' : `<option value="${idx}">${section.name}</option>`).join('');
+        return `
+            <div class="tag-editor">
+                <div class="editor-kicker">正在编辑标签规则</div>
+                <div class="muted">当前标签：#${tag}</div>
+                <input class="editor-input" data-role="alias-new" type="text" placeholder="重命名为" value="${currentChatRule || currentGlobalRule}">
+                <div class="tag-editor-grid">
+                    <select class="editor-select" data-role="alias-scope">
+                        <option value="chat">当前群组</option>
+                        <option value="global">全局</option>
+                        <option value="target">指定目标群组</option>
+                    </select>
+                    <div class="editor-target-wrap" data-role="alias-target-wrap">
+                        <select class="editor-select" data-role="alias-target">${buildTargetOptionsMarkup()}</select>
+                    </div>
+                </div>
+                <div class="tag-editor-grid">
+                    <select class="editor-select" data-role="move-section">
+                        <option value="">移动到其他分区</option>
+                        ${moveOptions}
+                    </select>
+                    <button class="btn" data-role="move-btn">移动标签</button>
+                </div>
+                <div class="hint">规则直接写入 Bot 共用 alias 数据；移动标签只影响目录归属。当前群组规则：${currentChatRule || '无'}；全局规则：${currentGlobalRule || '无'}。保存后右侧预览会同步刷新。</div>
+                <div class="editor-actions">
+                    <button class="btn" data-role="close-editor">关闭编辑</button>
+                    <button class="btn btn-primary" data-role="save-alias">保存规则</button>
+                    <button class="btn btn-danger" data-role="delete-alias">删除规则</button>
+                </div>
+            </div>
+        `;
+    }
+
+    function bindSectionEditor(card, sectionIndex) {
+        const slot = card.querySelector('[data-role="editor-slot"]');
+        if (!slot) return;
+        if (isSectionSelectionMode(sectionIndex)) {
+            const scopeSelect = slot.querySelector('[data-role="merge-scope"]');
+            const targetWrap = slot.querySelector('[data-role="merge-target-wrap"]');
+            const targetSelect = slot.querySelector('[data-role="merge-target-select"]');
+            const mergeInput = slot.querySelector('[data-role="merge-target"]');
+            if (scopeSelect && targetWrap) {
+                const syncVisibility = () => targetWrap.classList.toggle('show', scopeSelect.value === 'target');
+                syncVisibility();
+                slot.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                scopeSelect.addEventListener('change', syncVisibility);
+            }
+            const clearBtn = slot.querySelector('[data-role="clear-selection"]');
+            if (clearBtn) clearBtn.addEventListener('click', () => { selectedTagsBySection[sectionIndex] = []; renderSections(); showToast('已清空多选'); });
+            const mergeBtn = slot.querySelector('[data-role="merge-selected"]');
+            if (mergeBtn) mergeBtn.addEventListener('click', () => mergeSelectedTags(sectionIndex, scopeSelect ? scopeSelect.value : 'chat', targetSelect ? targetSelect.value : '', mergeInput ? mergeInput.value : ''));
+            return;
+        }
+        if (!selectedTag || selectedTag.sectionIndex !== sectionIndex) return;
+        const scopeSelect = slot.querySelector('[data-role="alias-scope"]');
+        const targetWrap = slot.querySelector('[data-role="alias-target-wrap"]');
+        const targetSelect = slot.querySelector('[data-role="alias-target"]');
+        const aliasInput = slot.querySelector('[data-role="alias-new"]');
+        const moveSelect = slot.querySelector('[data-role="move-section"]');
+        const syncVisibility = () => targetWrap.classList.toggle('show', scopeSelect.value === 'target');
+        syncVisibility();
+        slot.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        scopeSelect.addEventListener('change', syncVisibility);
+        slot.querySelector('[data-role="close-editor"]').addEventListener('click', () => {
+            selectedTag = null;
+            renderSections();
+            showToast('已关闭当前标签编辑');
+        });
+        slot.querySelector('[data-role="save-alias"]').addEventListener('click', () => saveAliasRule({
+            tag: selectedTag.tag,
+            scope: scopeSelect.value,
+            target: targetSelect.value,
+            newTag: aliasInput.value,
+        }));
+        slot.querySelector('[data-role="delete-alias"]').addEventListener('click', () => deleteAliasRule({
+            tag: selectedTag.tag,
+            scope: scopeSelect.value,
+            target: targetSelect.value,
+        }));
+        slot.querySelector('[data-role="move-btn"]').addEventListener('click', () => moveTagToSection(selectedTag.tag, sectionIndex, moveSelect.value));
+    }
+
+    function renderSections() {
+        sectionsGrid.innerHTML = '';
+        if (!currentSections.length) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            empty.textContent = '当前没有分区，可点击“新增分区”开始整理标签。';
+            sectionsGrid.appendChild(empty);
+            return;
+        }
+
+        currentSections.forEach((section, sectionIndex) => {
+            const card = document.createElement('section');
+            card.className = 'section-card';
+
+            const head = document.createElement('div');
+            head.className = 'section-head';
+            const titleWrap = document.createElement('div');
+            titleWrap.className = 'section-title-wrap';
+            const titleInput = document.createElement('input');
+            titleInput.className = 'section-title-input';
+            titleInput.value = section.name;
+            titleInput.addEventListener('change', () => {
+                section.name = titleInput.value.trim() || '未命名分区';
+                updateSubtitle();
+                refreshPreview();
+            });
+            titleWrap.appendChild(titleInput);
+            const meta = document.createElement('div');
+            meta.className = 'section-note';
+            meta.textContent = `${(section.tags || []).length} 个标签`;
+            titleWrap.appendChild(meta);
+            if ((selectedTag && selectedTag.sectionIndex === sectionIndex) || isSectionSelectionMode(sectionIndex)) {
+                const state = document.createElement('div');
+                state.className = 'section-note';
+                state.style.color = 'var(--accent)';
+                state.textContent = isSectionSelectionMode(sectionIndex) ? '当前分区正在批量合并标签' : `当前分区正在编辑 #${selectedTag.tag}`;
+                titleWrap.appendChild(state);
+            }
+            head.appendChild(titleWrap);
+
+            const actions = document.createElement('div');
+            actions.className = 'section-actions';
+            const multiBtn = document.createElement('button');
+            multiBtn.className = 'btn';
+            multiBtn.textContent = isSectionSelectionMode(sectionIndex) ? '退出多选' : '多选模式';
+            multiBtn.onclick = () => toggleSectionSelectionMode(sectionIndex);
+            actions.appendChild(multiBtn);
+            const upBtn = document.createElement('button');
+            upBtn.className = 'btn';
+            upBtn.textContent = '上移';
+            upBtn.disabled = sectionIndex === 0;
+            upBtn.onclick = () => {
+                if (sectionIndex === 0) return;
+                const tmp = currentSections[sectionIndex - 1];
+                currentSections[sectionIndex - 1] = currentSections[sectionIndex];
+                currentSections[sectionIndex] = tmp;
+                if (selectedTag && selectedTag.sectionIndex === sectionIndex) selectedTag.sectionIndex = sectionIndex - 1;
+                else if (selectedTag && selectedTag.sectionIndex === sectionIndex - 1) selectedTag.sectionIndex = sectionIndex;
+                renderSections();
+                updateSubtitle();
+                refreshPreview();
+            };
+            actions.appendChild(upBtn);
+            const downBtn = document.createElement('button');
+            downBtn.className = 'btn';
+            downBtn.textContent = '下移';
+            downBtn.disabled = sectionIndex === currentSections.length - 1;
+            downBtn.onclick = () => {
+                if (sectionIndex >= currentSections.length - 1) return;
+                const tmp = currentSections[sectionIndex + 1];
+                currentSections[sectionIndex + 1] = currentSections[sectionIndex];
+                currentSections[sectionIndex] = tmp;
+                if (selectedTag && selectedTag.sectionIndex === sectionIndex) selectedTag.sectionIndex = sectionIndex + 1;
+                else if (selectedTag && selectedTag.sectionIndex === sectionIndex + 1) selectedTag.sectionIndex = sectionIndex;
+                renderSections();
+                updateSubtitle();
+                refreshPreview();
+            };
+            actions.appendChild(downBtn);
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'btn';
+            deleteBtn.textContent = '删除分区';
+            deleteBtn.onclick = () => {
+                if ((section.tags || []).length) {
+                    showToast('请先移除分区内标签，再删除分区');
+                    return;
+                }
+                currentSections.splice(sectionIndex, 1);
+                renderSections();
+                updateSubtitle();
+                refreshPreview();
+            };
+            actions.appendChild(deleteBtn);
+            head.appendChild(actions);
+            card.appendChild(head);
+
+            const editorSlot = document.createElement('div');
+            editorSlot.className = 'section-editor-slot' + ((isSectionSelectionMode(sectionIndex) || (selectedTag && selectedTag.sectionIndex === sectionIndex)) ? ' show' : '');
+            editorSlot.dataset.role = 'editor-slot';
+            editorSlot.innerHTML = renderSectionEditor(sectionIndex);
+            card.appendChild(editorSlot);
+
+            const addRow = document.createElement('div');
+            addRow.className = 'section-add-row';
+            const addInput = document.createElement('input');
+            addInput.className = 'section-add-input';
+            addInput.placeholder = '输入标签后回车或点击添加';
+            const addBtn = document.createElement('button');
+            addBtn.className = 'btn btn-primary';
+            addBtn.textContent = '+ 添加标签';
+            const submitAdd = () => {
+                const value = normalizeTag(addInput.value);
+                if (!value) {
+                    showToast('请输入标签');
+                    return;
+                }
+                const existing = new Set(buildFlatTagsFromSections(currentSections));
+                if (existing.has(value)) {
+                    showToast(`标签 #${value} 已存在`);
+                    return;
+                }
+                section.tags.push(value);
+                addInput.value = '';
+                renderSections();
+                updateSubtitle();
+                refreshPreview();
+            };
+            addBtn.onclick = submitAdd;
+            addInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    submitAdd();
+                }
+            });
+            addRow.appendChild(addInput);
+            addRow.appendChild(addBtn);
+            card.appendChild(addRow);
+
+            const chips = document.createElement('div');
+            chips.className = 'section-chips';
+            if (!(section.tags || []).length) {
+                const empty = document.createElement('div');
+                empty.className = 'empty-state';
+                empty.textContent = '这个分区还没有标签';
+                chips.appendChild(empty);
+            } else {
+                (section.tags || []).forEach((tag) => {
+                    const chip = document.createElement('button');
+                    chip.type = 'button';
+                    chip.className = 'tag-chip';
+                    if (selectedTag && selectedTag.tag === tag && selectedTag.sectionIndex === sectionIndex) {
+                        chip.classList.add('active');
+                    }
+                    if (getSelectedTags(sectionIndex).includes(tag)) {
+                        chip.classList.add('multi-selected');
+                    }
+                    const hasChatRule = !!currentAliasState.chat[tag];
+                    const hasGlobalRule = !!currentAliasState.global[tag];
+                    if (hasChatRule) chip.classList.add('alias');
+                    if (hasGlobalRule) chip.classList.add('global-rule');
+                    chip.textContent = `#${tag}`;
+                    chip.onclick = () => startTagEdit(tag, sectionIndex);
+                    chips.appendChild(chip);
+                });
+            }
+            card.appendChild(chips);
+
+            sectionsGrid.appendChild(card);
+            bindSectionEditor(card, sectionIndex);
+        });
+    }
+
+    async function refreshPreview() {
+        if (!currentGroupName) {
+            previewMeta.textContent = '请选择群组后加载预览';
+            previewBody.textContent = '暂无预览';
+            return;
+        }
+        try {
+            const target = parseGroupChatToken(currentGroupName);
+            const query = new URLSearchParams({ group: currentGroupName });
+            if (target) query.set('target', target);
+            await loadAliasState();
+            previewData = await fetchJson(`/api/tags/preview?${query.toString()}`);
+            previewMeta.textContent = `分区 ${previewData.sections.length} · 消息片段 ${previewData.split_count} · alias 生效 ${previewData.applied_alias_count}`;
+            previewBody.textContent = (previewData.rendered_messages || []).join('\n\n') || '暂无预览';
+            renderSections();
+        } catch (error) {
+            previewMeta.textContent = '加载预览失败';
+            previewBody.textContent = error.message || '加载失败';
+        }
+    }
+
     function selectGroup(name) {
-        const group = groups.find((item) => item.name === name) || { name, tags: [] };
+        const group = groups.find((item) => item.name === name) || { name, tags: [], sections: [makeEmptySection()] };
         currentGroupName = group.name;
         originalGroupName = group.name;
         isNewGroup = false;
         groupNameInput.value = group.name;
-        tagify.removeAllTags();
-        tagify.addTags(group.tags || []);
-        updateSubTitle();
+        currentSections = deepClone(group.sections && group.sections.length ? group.sections : [{ name: '未分组', tags: group.tags || [] }]);
+        selectedTag = null;
         renderGroups();
-        loadAliasRules();
+        renderSections();
+        updateSubtitle();
+        refreshPreview();
     }
 
-    async function loadGroups({ refreshTargets = false } = {}) {
-        const token = getToken();
-        if (!token) {
-            redirectToLogin();
-            return;
-        }
-        if (refreshTargets || Object.keys(targetMetaByToken).length === 0) {
-            const ok = await loadTargetMeta();
-            if (!ok) return;
-        }
-        const resp = await fetch('/api/tags/groups', {
-            headers: {
-                'Authorization': `Bearer ${token}`
+    async function loadGroups() {
+        const payload = await fetchJson('/api/tags/groups');
+        const savedGroups = Array.isArray(payload) ? payload : [];
+        const merged = new Map();
+        savedGroups.forEach((group) => {
+            if (!group || !group.name) return;
+            merged.set(String(group.name), {
+                name: String(group.name),
+                tags: Array.isArray(group.tags) ? group.tags : [],
+                sections: Array.isArray(group.sections) ? group.sections : [{ name: '未分组', tags: group.tags || [] }],
+                source: 'saved',
+            });
+        });
+        Object.keys(targetMetaByToken).forEach((token) => {
+            if (!merged.has(token)) {
+                merged.set(token, { name: token, tags: [], sections: [makeEmptySection('未分组')], source: 'managed' });
             }
         });
-        if (resp.status === 401) {
-            redirectToLogin();
-            return;
-        }
-        if (!resp.ok) {
-            showToast('加载标签组失败');
-            return;
-        }
-        groups = await resp.json();
+        groups = Array.from(merged.values()).sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh-CN', { numeric: true }));
         renderGroups();
         if (originalGroupName) {
             const stillExists = groups.find((item) => item.name === originalGroupName);
@@ -812,109 +1236,108 @@
             currentGroupName = '';
             originalGroupName = '';
             isNewGroup = false;
+            currentSections = [];
             groupNameInput.value = '';
-            tagify.removeAllTags();
-            updateSubTitle();
-            loadAliasRules();
+            renderSections();
+            updateSubtitle();
+            refreshPreview();
         }
     }
 
     async function saveGroup() {
-        const token = getToken();
-        if (!token) {
-            redirectToLogin();
-            return;
-        }
-        const newName = groupNameInput.value.trim();
-        if (!newName) {
+        const name = groupNameInput.value.trim();
+        if (!name) {
             showToast('请输入标签组名称');
             return;
         }
-        const tags = getTagValues();
-        if (!isNewGroup && originalGroupName && newName !== originalGroupName) {
-            const exists = groups.find((item) => item.name === newName);
-            if (exists && !confirm(`标签组 ${newName} 已存在，是否覆盖？`)) {
-                return;
-            }
-        }
-        const resp = await fetch('/api/tags/groups', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ name: newName, tags })
-        });
-        if (resp.status === 401) {
-            redirectToLogin();
-            return;
-        }
-        if (!resp.ok) {
-            const payload = await resp.json().catch(() => ({}));
-            showToast(payload.detail || '保存失败');
-            return;
-        }
-        if (!isNewGroup && originalGroupName && newName !== originalGroupName) {
-            await fetch(`/api/tags/groups/${encodeURIComponent(originalGroupName)}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
+        try {
+            await fetchJson('/api/tags/groups', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name,
+                    sections: currentSections,
+                    tags: buildFlatTagsFromSections(currentSections),
+                }),
             });
+            showToast('标签目录已保存');
+            currentGroupName = name;
+            originalGroupName = name;
+            isNewGroup = false;
+            await loadGroups();
+        } catch (error) {
+            showToast(error.message || '保存失败');
         }
-        showToast('标签组已保存');
-        originalGroupName = newName;
-        currentGroupName = newName;
-        isNewGroup = false;
-        await loadGroups();
+    }
+
+    async function renameGroup() {
+        const newName = groupNameInput.value.trim();
+        if (!originalGroupName) {
+            showToast('请先选择现有标签组');
+            return;
+        }
+        if (!newName) {
+            showToast('请输入新的标签组名称');
+            return;
+        }
+        if (newName === originalGroupName) {
+            showToast('标签组名称未变化');
+            return;
+        }
+        try {
+            await fetchJson('/api/tags/groups/rename', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ old_name: originalGroupName, new_name: newName }),
+            });
+            showToast('标签组已重命名');
+            originalGroupName = newName;
+            currentGroupName = newName;
+            groupNameInput.value = newName;
+            await loadGroups();
+        } catch (error) {
+            showToast(error.message || '重命名失败');
+        }
     }
 
     async function deleteGroup() {
-        const token = getToken();
-        if (!token) {
-            redirectToLogin();
-            return;
-        }
         if (!originalGroupName) {
-            groupNameInput.value = '';
-            tagify.removeAllTags();
+            showToast('请先选择标签组');
+            return;
+        }
+        if (!confirm(`确认删除标签组 ${originalGroupName} ?`)) return;
+        try {
+            await fetchJson(`/api/tags/groups/${encodeURIComponent(originalGroupName)}`, { method: 'DELETE' });
+            showToast('标签组已删除');
+            originalGroupName = '';
             currentGroupName = '';
-            isNewGroup = false;
-            updateSubTitle();
-            return;
+            currentSections = [];
+            selectedTag = null;
+            await loadGroups();
+        } catch (error) {
+            showToast(error.message || '删除失败');
         }
-        if (!confirm(`确认删除标签组 ${originalGroupName} ?`)) {
-            return;
-        }
-        const resp = await fetch(`/api/tags/groups/${encodeURIComponent(originalGroupName)}`, {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        if (resp.status === 401) {
-            redirectToLogin();
-            return;
-        }
-        if (!resp.ok) {
-            const payload = await resp.json().catch(() => ({}));
-            showToast(payload.detail || '删除失败');
-            return;
-        }
-        showToast('标签组已删除');
-        originalGroupName = '';
-        currentGroupName = '';
-        isNewGroup = false;
-        await loadGroups();
     }
 
+    async function bootstrap() {
+        try {
+            await loadTargetMeta();
+            await loadGroups();
+        } catch (error) {
+            showToast(error.message || '加载失败');
+        }
+    }
+
+    document.getElementById('refreshBtn').addEventListener('click', bootstrap);
+    document.getElementById('refreshPreviewBtn').addEventListener('click', refreshPreview);
     document.getElementById('saveGroupBtn').addEventListener('click', saveGroup);
+    document.getElementById('renameGroupBtn').addEventListener('click', renameGroup);
     document.getElementById('deleteGroupBtn').addEventListener('click', deleteGroup);
-    document.getElementById('refreshBtn').addEventListener('click', () => loadGroups({ refreshTargets: true }));
-    saveAliasBtn.addEventListener('click', saveAliasRule);
-    refreshAliasBtn.addEventListener('click', loadAliasRules);
-    aliasScope.addEventListener('change', loadAliasRules);
-    groupSearchInput.addEventListener('input', () => {
-        groupSearchKeyword = String(groupSearchInput.value || '');
-        renderGroups();
+    document.getElementById('toggleRawBtn').addEventListener('click', () => rawPanel.classList.toggle('show'));
+    document.getElementById('addSectionBtn').addEventListener('click', () => {
+        currentSections.push(makeEmptySection(`新分区 ${currentSections.length + 1}`));
+        renderSections();
+        updateSubtitle();
     });
     document.getElementById('createGroupBtn').addEventListener('click', () => {
         const nameInput = document.getElementById('newGroupName');
@@ -927,15 +1350,47 @@
         originalGroupName = '';
         isNewGroup = true;
         groupNameInput.value = name;
+        currentSections = [makeEmptySection('未分组')];
+        selectedTag = null;
         nameInput.value = '';
-        tagify.removeAllTags();
-        updateSubTitle();
+        renderSections();
+        updateSubtitle();
         renderGroups();
-        loadAliasRules();
+        refreshPreview();
+    });
+    groupSearchInput.addEventListener('input', () => {
+        groupSearchKeyword = String(groupSearchInput.value || '');
+        renderGroups();
+    });
+    rawTextInput.addEventListener('blur', () => {
+        const text = String(rawTextInput.value || '').trim();
+        if (!text) return;
+        const blocks = text.split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean);
+        const sections = [];
+        let fallback = [];
+        blocks.forEach((block) => {
+            const lines = block.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+            if (!lines.length) return;
+            const first = lines[0];
+            if (first.startsWith('---') && first.endsWith('---')) {
+                const name = first.replace(/^-+|-+$/g, '').replace(/^#+/, '').trim() || '未分组';
+                const tags = lines.slice(1).map((line) => normalizeTag(line)).filter(Boolean);
+                sections.push({ name, tags });
+            } else {
+                fallback = fallback.concat(lines.map((line) => normalizeTag(line)).filter(Boolean));
+            }
+        });
+        if (fallback.length) sections.unshift({ name: '未分组', tags: Array.from(new Set(fallback)) });
+        if (sections.length) {
+            currentSections = sections;
+            selectedTag = null;
+            renderSections();
+            updateSubtitle();
+            refreshPreview();
+            showToast('已从原始文本回填到分区卡片');
+        }
     });
 
-    tagify.on('change', updateSubTitle);
-
-    loadGroups({ refreshTargets: true });
+    bootstrap();
 </script>
 {% endblock %}

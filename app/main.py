@@ -54,7 +54,7 @@ def create_app(
     app = FastAPI(
         title="Admin Panel API",
         description="Configuration management API for Telegram Media Dedup Bot",
-        version="3.0",
+        version="3.5",
     )
 
     # Add CORS middleware
@@ -173,6 +173,14 @@ def create_app(
         return templates.TemplateResponse(
             "users.html",
             {"request": request, "active_page": "users"},
+        )
+
+    @app.get("/account", response_class=HTMLResponse)
+    async def account_page(request: Request) -> HTMLResponse:
+        """Serve account management page as an alias of users page."""
+        return templates.TemplateResponse(
+            "users.html",
+            {"request": request, "active_page": "account"},
         )
 
     @app.get("/tools", response_class=HTMLResponse)
