@@ -11,11 +11,18 @@
 
 [中文](README.md)
 
-> A self-hosted Bot + Web Admin workspace for Telegram group and channel maintenance, focused on faster tag operations, more consistent tools, and better long-term maintainability.
+> A self-hosted Bot + Web Admin workspace for Telegram group and channel maintenance, designed for long-term tag organization, tool execution, and cleaner operational flow.
 
 ## Why this tool?
 
-Many Telegram maintenance tools can technically finish the job, but they still make the daily workflow awkward: tag management feels like editing raw text, tool pages behave inconsistently, and you still have to guess what the Bot output will look like after changing rules. Channel Manager Bot is built to improve that entire maintenance loop, not just one isolated feature.
+Many Telegram maintenance tools can technically do the job, but the real pain appears in repeated daily use: tag management feels like raw text maintenance, each tool page behaves differently, and after editing rules you still have to guess how the Bot will actually render the result. Channel Manager Bot 3.5 focuses on those real maintenance scenarios and turns them into a smoother, more stable workspace.
+
+## Best-Fit Scenarios
+
+- **Ongoing tag maintenance**: when your groups or channels need frequent tag cleanup, renaming, merging, section organization, and previewing, the tag workspace is much easier to live with than raw text editing.
+- **Daily moderation and maintenance work**: when you keep switching between cleaner, media filter, maintenance tools, and account pages, a unified tool-page structure reduces friction.
+- **Bot and admin panel working together**: when you want Web Admin changes to stay close to actual Bot output, shared tag and alias rules help reduce surprises.
+- **NAS / Docker self-hosting**: when you care about stable deployment, persistent directories, and long-running operations, this fits better than a throwaway script stack.
 
 ## What changed in 3.5
 
@@ -52,6 +59,20 @@ The dashboard acts as a cleaner entry point for Bot settings, tag management, co
 - **Maintenance tools**: cleaner, media filter, and operational tools under a more unified UI model.
 - **Shared Bot/Web rules**: the same tag and alias files drive both editing and execution.
 - **Self-hosting friendly**: works well with Docker, Compose, and NAS-style persistent volumes.
+
+## Common Ways To Use It
+
+### 1. As a tag-operations console
+
+Useful when your content flow is stable but the tag system keeps growing in complexity. `/tags` becomes the main place to maintain structure, aliases, and preview behavior instead of repeatedly editing raw text.
+
+### 2. As a daily maintenance toolbox
+
+Useful when admins repeatedly run cleaner, filtering, and maintenance actions. The unified tool-page rhythm makes these operations easier to repeat without context switching.
+
+### 3. As a self-hosted Bot operations panel
+
+Useful when you want Bot configuration, Web Admin, and data directories to live in one self-hosted environment, especially on Docker, NAS, or a small server.
 
 ## ⚡ Quick Start
 
