@@ -74,6 +74,88 @@
 
 适合希望把 Bot 规则、Web 管理和数据目录放在同一套自托管环境里统一维护的用户，尤其是 Docker / NAS / 小型服务器场景。
 
+## 完整 Bot 命令列表
+
+下面这部分是完整命令参考。首页保留完整命令，是因为这个项目并不只是 Web Admin，很多真实维护动作仍然直接发生在 Bot 对话里。
+
+### 基础与状态
+
+- `/start`：显示欢迎信息、当前模式，并给出 Web 面板入口
+- `/help`：显示完整指令列表
+- `/menu`：打开主控按钮面板
+- `/ping`：健康检查
+- `/stats`：查看当前 chat 统计
+- `/mode`：查看或设置当前 chat 的删除模式
+- `/status`：查看当前 chat 正在执行的任务状态
+
+### 运行模式与删除开关
+
+- `/enable_delete`：开启删除能力
+- `/disable_delete`：关闭删除能力
+- `/dry_run_on`：开启 dry-run
+- `/dry_run_off`：关闭 dry-run
+
+### 历史扫描与重复处理
+
+- `/scan [N]`：回溯扫描当前群/频道历史，`N=条数`，`0=不限制`
+- `/scan <chat> [N]`：显式指定扫描目标，`chat` 支持 `-100...`、`@username`、邀请链接
+- `/scan_delete [N]`：回溯扫描并删除重复，要求先关闭 dry-run 并开启 delete
+- `/scan_delete <chat> [N]`：同上，但显式指定目标
+- `/scan_status`：查看扫描任务进度
+- `/scan_stop`：停止当前扫描任务
+- `/flush [N]`：删除待删队列，默认 `100`，最大 `1000`
+
+### 标签目录与标签生成
+
+- `/tags_pin [N] [MAX]`：回溯提取 `#标签`，生成标签目录并置顶
+- `/tags_pin <chat> [N] [MAX]`：对指定目标执行标签目录生成
+- `/tag_pin`：`/tags_pin` 的别名
+- `/tag_build`：扫描历史媒体消息，按标签库匹配并自动补标签
+- `/tag_build_status`：查看 `tag_build` 任务进度
+- `/tag_build_stop`：停止 `tag_build`
+- `/tag_rebuild [N|all]`：对历史消息执行标签替换与屏蔽文本删除
+- `/tag_update`：执行标签更新，包括清理黑名单、屏蔽文本、补齐标签并生成目录
+- `/tag_stop`：停止当前 chat 的标签相关任务（`scan` / `tags_pin` / `tag_build` / `tag_rebuild`）
+- `/tag_count [N]`：设置每条消息最多补标签数，范围 `1-10`
+
+### 标签别名与文本规则
+
+- `/tag_rename [global] #旧=#新`：设置标签别名规则
+- `/tag_rename [global] list`：查看标签别名规则
+- `/tag_rename [global] del #旧标签`：删除标签别名规则
+- `/text_block [global] list`：查看屏蔽关键词
+- `/text_block [global] add 关键词`：新增屏蔽关键词
+- `/text_block [global] del 关键词`：删除屏蔽关键词
+
+### Session / Telethon 维护
+
+以下命令通常建议在私聊中使用：
+
+- `/session_status`：查看当前 Telethon session 状态
+- `/session_login`：开始手机号登录流程
+- `/session_qr`：使用二维码登录
+- `/session_code`：提交短信或 Telegram 登录验证码
+- `/session_password`：提交二步验证密码
+- `/session_logout`：登出当前 session
+- `/session_reset`：重置当前 session
+
+### 命令使用说明
+
+- 很多历史扫描与标签命令依赖 Telethon 用户账号 session，不是纯 Bot Token 就能完成。
+- 涉及 `<chat>` 参数的命令，一般支持 `-100...`、`@username`、邀请链接三类目标表示方式。
+- 涉及真实删除的命令，建议先在 dry-run 下观察输出，再切换到正式执行。
+
+### 推荐的最小使用顺序
+
+如果你刚开始接管一个新群组或频道，推荐顺序是：
+
+1. `/ping`
+2. `/status`
+3. `/session_status`
+4. `/tags_pin` 或进入 `/tags`
+5. `/tag_update`
+6. 确认后再决定是否执行 `/scan_delete`
+
 ## ⚡ Quick Start
 
 ```bash
