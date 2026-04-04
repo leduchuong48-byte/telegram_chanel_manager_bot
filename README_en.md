@@ -1,46 +1,71 @@
-# Channel Manager Bot 3.5
+# Channel Manager Bot
 
-![Web Admin 3.5](https://img.shields.io/badge/Web%20Admin-3.5-1f6feb?style=for-the-badge)
+![Channel Manager Bot 3.5](docs/ui/web-tags-workbench-3-5.png)
 
 [![Docker Pulls](https://img.shields.io/docker/pulls/leduchuong/telegram_mediachanel_manager_bot?logo=docker&label=Docker%20Pulls&style=flat-square)](https://hub.docker.com/r/leduchuong/telegram_mediachanel_manager_bot)
 [![GitHub Stars](https://img.shields.io/github/stars/leduchuong48-byte/telegram_chanel_manager_bot?style=flat-square)](https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/leduchuong48-byte/telegram_chanel_manager_bot?style=flat-square)](https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/network/members)
 [![GitHub Issues](https://img.shields.io/github/issues/leduchuong48-byte/telegram_chanel_manager_bot?style=flat-square)](https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/issues)
 [![License](https://img.shields.io/github/license/leduchuong48-byte/telegram_chanel_manager_bot?style=flat-square)](https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/blob/main/LICENSE)
-[![Build: Passing](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](#)
 [![Platform: ARM64/AMD64](https://img.shields.io/badge/Platform-ARM64%2FAMD64-blue.svg)](#)
 
 [中文](README.md)
 
-> Better alternative to manual Telegram admin workflows for Telegram operations.
-
-A self-hosted Telegram management tool that combines Bot workflows with a Web Admin panel for tag operations, cleaning tools, media filters, and more consistent operator UX.
+> A self-hosted Bot + Web Admin workspace for Telegram group and channel maintenance, focused on faster tag operations, more consistent tools, and better long-term maintainability.
 
 ## Why this tool?
 
-If your Telegram maintenance flow depends on commands, scattered scripts, and inconsistent admin pages, simple tasks like editing tags, previewing results, and switching between tools become slower than they should be. Version 3.5 focuses on a more stable, more unified, and more practical Web Admin workflow.
+Many Telegram maintenance tools can technically finish the job, but they still make the daily workflow awkward: tag management feels like editing raw text, tool pages behave inconsistently, and you still have to guess what the Bot output will look like after changing rules. Channel Manager Bot is built to improve that entire maintenance loop, not just one isolated feature.
 
-## Why This Project Is Useful (Pain Points)
+## What changed in 3.5
 
-- Tag management used to feel like raw text maintenance instead of a proper workspace for editing and previewing.
-- Different admin pages behaved differently, which increased friction and the chance of mistakes.
-- Web Admin changes and actual Bot output were not aligned enough, so operators still had to guess the final result.
+- **A stronger Web Admin UX**: the frontend is now split into two clear modes, with Tag Workspace for continuous editing and preview, and Tool Pages for configuration, maintenance, and execution tasks.
+- **A real tag workspace**: tag management moves away from the old plain-text flow into a section-based workbench with managed groups on the left, editable sections in the center, and a fixed Telegram preview on the right.
+- **Better tag operations**: rename rules, multi-select mode, merge-to-target, add tags inside sections, reorder sections, move tags across sections, and create-and-move workflows are now part of the main editing experience.
+- **Stronger Bot/Admin consistency**: Web Admin and Bot commands continue sharing the same tag files and alias rules, and the Telegram preview is closer to real Bot output.
+- **Unified target selection**: `tags`, `cleaner`, `media_filter`, and `tools` consistently show only targets where `bot_can_manage == true`.
+- **Usability fixes**: `/account` routing, blocked-word readability, tags-page interaction feedback, and large-section editing flow all received practical improvements.
 
-## What the Project Does (Features)
+## Web Admin UI Preview
 
-- A dual-mode admin design with a Tag Workspace for continuous editing and preview, plus Tool Pages for configuration and maintenance actions.
-- Better tag workflows with sections, multi-select, merge, rename rules, section ordering, tag moving, and fixed Telegram preview.
-- Shared tag files and alias rules across Web Admin and Bot commands for more predictable behavior.
+### Tag Workspace
 
-## ⚡️ Quick Start (Run in 3 seconds)
+![Tag Workspace](docs/ui/web-tags-workbench-3-5.png)
+
+The new tag workspace keeps managed groups, editable sections, and Telegram preview in one place, making long editing sessions feel like an actual workspace rather than a scattered collection of panels.
+
+### Tool Pages
+
+![Tool Pages](docs/ui/web-tools-3-5.png)
+
+Tool pages now follow a much more consistent rhythm: choose the target, run the maintenance action, and read feedback in the same interaction pattern.
+
+### Entry And Overview
+
+![Dashboard](docs/ui/web-dashboard-3-5.png)
+
+The dashboard acts as a cleaner entry point for Bot settings, tag management, configuration editing, and logs, with less visual noise and better hierarchy.
+
+## Core Capabilities
+
+- **Tag workflow management**: sections, aliases, ordering, moving, preview, and batch organization.
+- **Maintenance tools**: cleaner, media filter, and operational tools under a more unified UI model.
+- **Shared Bot/Web rules**: the same tag and alias files drive both editing and execution.
+- **Self-hosting friendly**: works well with Docker, Compose, and NAS-style persistent volumes.
+
+## ⚡ Quick Start
 
 ```bash
-docker run -d --name telegram_mediachanel_manager_bot --restart unless-stopped -p 1009:8000 -v /path/to/data:/app/data -v /path/to/sessions:/app/sessions leduchuong/telegram_mediachanel_manager_bot:latest
+docker run -d \
+  --name telegram_mediachanel_manager_bot \
+  --restart unless-stopped \
+  -p 1009:8000 \
+  -v /path/to/data:/app/data \
+  -v /path/to/sessions:/app/sessions \
+  leduchuong/telegram_mediachanel_manager_bot:latest
 ```
 
-> In production, inject secrets through external config and mounted files. Do not publish real tokens, session data, group data, or personal information.
-
-## Docker Compose (Portainer / NAS ready)
+## Docker Compose
 
 ```yaml
 services:
@@ -48,92 +73,34 @@ services:
     image: leduchuong/telegram_mediachanel_manager_bot:latest
     container_name: telegram_mediachanel_manager_bot
     restart: unless-stopped
+    ports:
+      - "1009:8000"
     environment:
       - TZ=UTC
       - LOG_LEVEL=INFO
-    ports:
-      - "1009:8000"
     volumes:
       - ./data:/app/data
       - ./sessions:/app/sessions
 ```
 
-## GitHub Topics (pick at least 5)
+## Recommended Usage
 
-`#telegram` `#selfhosted` `#homelab` `#nas` `#bot` `#automation` `#webadmin`
+- Use `/tags` as the primary place for tag organization; raw text should stay a compatibility or advanced path.
+- For complex tag cleanup, combine single-tag editing, multi-select mode, and Telegram preview.
+- In production, keep tokens, sessions, group data, and databases in mounted storage, not in the repository or image layer.
 
-## 📈 Visual Add-ons (Profile Style)
+## Project Layout
 
-<p align="left"> <img src="https://komarev.com/ghpvc/?username=leduchuong48-byte&label=Repo%20views&color=0e75b6&style=flat" alt="leduchuong48-byte" /> </p>
-
-<p>
-  <img align="left" src="https://github-readme-stats-sigma-five.vercel.app/api/top-langs?username=leduchuong48-byte&show_icons=true&locale=en&layout=compact" alt="top-langs" />
-  <img align="center" src="https://github-readme-stats-sigma-five.vercel.app/api?username=leduchuong48-byte&show_icons=true&locale=en" alt="stats" />
-</p>
-
-<p><img align="center" src="https://github-readme-streak-stats.herokuapp.com/?user=leduchuong48-byte" alt="streak" /></p>
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=leduchuong48-byte/telegram_chanel_manager_bot&type=Date&theme=dark" />
-  <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=leduchuong48-byte/telegram_chanel_manager_bot&type=Date" />
-  <img alt="Star History" src="https://api.star-history.com/svg?repos=leduchuong48-byte/telegram_chanel_manager_bot&type=Date" />
-</picture>
-
-## 🧰 Languages and Tools
-
-<p align="left"><img src="https://skillicons.dev/icons?i=python,docker" alt="tech stack"/></p>
-
-## Getting Started
-
-### Prerequisites
-
-- Python 3.11, or Docker / Docker Compose.
-- Telegram Bot configuration, optional Telethon configuration, and persistent data directories.
-
-### Installation
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### Run
-
-```bash
-python3 web_app.py
-```
-
-## Usage Example
-
-```bash
-docker compose up -d --build
-```
-
-## What's New in 3.5
-
-- Better Web Admin UX with a split between Tag Workspace and Tool Pages, plus unified structure, buttons, feedback, scrolling rules, and visual hierarchy.
-- Stronger tag workflow with managed groups on the left, section editing in the center, fixed Telegram preview on the right, and less reliance on unstable overlays.
-- Better tag operations including rename rules, multi-select mode, merge to a target tag, create tags inside sections, section reordering, cross-section moves, and new-section moves.
-- Stronger Bot/Admin consistency through shared tag files and alias rules, with previews closer to actual Bot output.
-- Unified target-group behavior so `tags`, `cleaner`, `media_filter`, and `tools` only show `bot_can_manage == true` groups.
-- Practical fixes including `/account` 404 repair, better blocked-word readability, tags-page interaction fixes, and less scrolling friction in large sections.
+- `app/`: FastAPI Web Admin
+- `tg_media_dedupe_bot/`: Bot core logic
+- `scripts/`: maintenance and self-check scripts
+- `WEB_ADMIN_README.md`: more operational, Web Admin-specific usage notes
 
 ## Where to Get Help
 
 - Issues: https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/issues
 - Discussions: https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/discussions
-- For bug reports, include anonymized repro steps, screenshots, and config excerpts when possible.
-
-## Maintainers and Contributors
-
-- Maintainer: @leduchuong48-byte
-- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
-
-## 🤝 Connect
-
-- GitHub: https://github.com/leduchuong48-byte
-- Repository: https://github.com/leduchuong48-byte/telegram_chanel_manager_bot
+- Docker Hub: https://hub.docker.com/r/leduchuong/telegram_mediachanel_manager_bot
 
 ## Disclaimer
 
