@@ -1,38 +1,36 @@
 {% extends "base.html" %}
 
+{% block page_kicker %}Observability{% endblock %}
+{% block page_title %}诊断日志流{% endblock %}
+{% block page_subtitle %}统一查看系统实时日志，可按级别、task、chat 上下文过滤，支持调查任务失败链路。{% endblock %}
+{% block page_mode %}page-editor{% endblock %}
+
 {% block content %}
 <style>
     .log-shell {
-        background: rgba(18, 28, 40, 0.85);
+        background: rgba(15, 23, 42, 0.92);
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 20px;
-        box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(20px);
+        box-shadow: 0 26px 54px rgba(0, 0, 0, 0.32);
         display: flex;
         flex-direction: column;
-        min-height: 70vh;
+        min-height: 72vh;
         position: relative;
         overflow: hidden;
     }
 
     .log-toolbar {
-        padding: 16px 20px;
+        padding: 14px 18px;
         display: flex;
         align-items: center;
         justify-content: space-between;
         border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(10, 16, 24, 0.6);
-        gap: 16px;
+        background: rgba(2, 6, 23, 0.58);
+        gap: 12px;
         flex-wrap: wrap;
     }
 
-    .log-title {
-        font-weight: 700;
-        font-size: 15px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
+    .log-title { font-weight: 800; font-size: 15px; display: flex; align-items: center; gap: 10px; color: #e2e8f0; }
 
     .status-dot {
         width: 8px;
@@ -42,142 +40,87 @@
         transition: background 0.3s;
     }
 
-    .status-dot.connected {
-        background: #2ea043;
-        box-shadow: 0 0 10px rgba(46, 160, 67, 0.4);
-    }
+    .status-dot.connected { background: #2ea043; box-shadow: 0 0 10px rgba(46, 160, 67, 0.4); }
+    .status-dot.disconnected { background: #da3633; }
 
-    .status-dot.disconnected {
-        background: #da3633;
-    }
-
-    .log-actions {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        flex-wrap: wrap;
-    }
+    .log-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
     .log-actions button,
-    .log-actions select {
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        color: var(--text);
-        padding: 6px 12px;
-        border-radius: 6px;
-        font-size: 13px;
+    .log-actions select,
+    .log-actions input {
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        color: #e2e8f0;
+        padding: 7px 10px;
+        border-radius: 8px;
+        font-size: 12px;
         cursor: pointer;
-        transition: all 0.2s;
     }
 
-    .log-actions select {
-        appearance: none;
-        padding-right: 26px;
-        background-image: linear-gradient(45deg, transparent 50%, var(--text) 50%),
-            linear-gradient(135deg, var(--text) 50%, transparent 50%);
-        background-position: calc(100% - 14px) 50%, calc(100% - 8px) 50%;
-        background-size: 6px 6px, 6px 6px;
-        background-repeat: no-repeat;
-    }
+    .log-actions input { min-width: 170px; }
 
     .log-actions button:hover,
-    .log-actions select:hover {
-        background: rgba(255, 255, 255, 0.2);
-    }
+    .log-actions select:hover,
+    .log-actions input:hover { background: rgba(255, 255, 255, 0.2); }
 
-    .log-actions button:active {
-        transform: translateY(1px);
-    }
+    .btn-clear { color: #f87171; border-color: rgba(248, 113, 113, 0.38); }
 
-    .btn-clear {
-        color: #f85149;
-        border-color: rgba(248, 81, 73, 0.3);
-    }
-
-    .btn-clear:hover {
-        background: rgba(248, 81, 73, 0.1);
+    .context-strip {
+        padding: 10px 18px;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+        font-size: 12px;
+        color: #94a3b8;
+        background: rgba(2, 6, 23, 0.44);
     }
 
     #terminal {
         flex: 1;
-        background: #0d1117;
-        padding: 20px;
+        background: #020617;
+        color: #e2e8f0;
+        padding: 18px;
         overflow-y: auto;
-        font-family: "JetBrains Mono", "Fira Code", monospace;
-        font-size: 13px;
-        line-height: 1.5;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        line-height: 1.55;
         white-space: pre-wrap;
         word-break: break-word;
         scroll-behavior: smooth;
     }
 
-    .log-entry {
-        margin-bottom: 2px;
-    }
+    .log-entry { margin-bottom: 3px; }
+    .log-entry[data-level="DEBUG"] { color: #94a3b8; }
+    .log-entry[data-level="INFO"] { color: #e2e8f0; }
+    .log-entry[data-level="WARNING"] { color: #fbbf24; }
+    .log-entry[data-level="ERROR"], .log-entry[data-level="CRITICAL"] { color: #f87171; }
 
-    .log-entry[data-level="DEBUG"] {
-        color: #8b949e;
-    }
-
-    .log-entry[data-level="INFO"] {
-        color: var(--text);
-    }
-
-    .log-entry[data-level="WARNING"] {
-        color: #d29922;
-    }
-
-    .log-entry[data-level="ERROR"],
-    .log-entry[data-level="CRITICAL"] {
-        color: #da3633;
-    }
-
-    #terminal::-webkit-scrollbar {
-        width: 8px;
-    }
-
-    #terminal::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.15);
-        border-radius: 4px;
-    }
-
-    #terminal::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.25);
-    }
+    #terminal::-webkit-scrollbar { width: 8px; }
+    #terminal::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 4px; }
 
     .scroll-to-bottom {
         position: absolute;
-        right: 24px;
-        bottom: 24px;
+        right: 22px;
+        bottom: 22px;
         padding: 8px 12px;
         border-radius: 999px;
-        background: rgba(10, 132, 255, 0.16);
-        border: 1px solid rgba(10, 132, 255, 0.3);
-        color: var(--text);
+        background: rgba(10, 120, 234, 0.22);
+        border: 1px solid rgba(10, 120, 234, 0.36);
+        color: #e2e8f0;
         font-size: 12px;
         display: none;
         align-items: center;
         gap: 6px;
         cursor: pointer;
-        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
-        transition: transform 0.2s ease, background 0.2s ease;
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.38);
     }
 
-    .scroll-to-bottom.show {
-        display: inline-flex;
-    }
-
-    .scroll-to-bottom:hover {
-        background: rgba(10, 132, 255, 0.25);
-        transform: translateY(-2px);
-    }
+    .scroll-to-bottom.show { display: inline-flex; }
 </style>
 
 <div class="log-shell">
     <div class="log-toolbar">
         <div class="log-title">
             <span id="status-dot" class="status-dot"></span>
-            系统日志 (System Logs)
+            诊断日志流
         </div>
         <div class="log-actions">
             <select id="levelFilter">
@@ -186,14 +129,15 @@
                 <option value="WARNING">WARNING</option>
                 <option value="ERROR">ERROR</option>
             </select>
+            <input id="taskFilter" placeholder="按 task 关键字过滤">
+            <input id="chatFilter" placeholder="按 chat 关键字过滤">
             <button class="btn-clear" onclick="clearLogs()">清空</button>
             <button onclick="window.location.href='/'">返回主页</button>
         </div>
     </div>
+    <div class="context-strip">支持 taskFilter / chatFilter 上下文筛选，定位任务失败与可见性问题更快。</div>
     <div id="terminal"></div>
-    <button class="scroll-to-bottom" id="scrollButton" onclick="scrollToBottom()">
-        ⬇️ 回到底部
-    </button>
+    <button class="scroll-to-bottom" id="scrollButton" onclick="scrollToBottom()">⬇️ 回到底部</button>
 </div>
 
 <script>
@@ -201,6 +145,8 @@
     const statusDot = document.getElementById('status-dot');
     const scrollButton = document.getElementById('scrollButton');
     const levelFilter = document.getElementById('levelFilter');
+    const taskFilter = document.getElementById('taskFilter');
+    const chatFilter = document.getElementById('chatFilter');
 
     let ws = null;
     let isAutoScroll = true;
@@ -208,7 +154,7 @@
     let heartbeatTimer = null;
 
     function stripAnsi(input) {
-        return String(input || '').replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
+        return String(input || '').replace(/\[[0-9;]*[A-Za-z]/g, '');
     }
 
     function connect() {
@@ -226,17 +172,11 @@
         ws.onopen = () => {
             statusDot.className = 'status-dot connected';
             appendLog('[Client] 已连接日志流。');
-            if (heartbeatTimer) {
-                clearInterval(heartbeatTimer);
-            }
+            if (heartbeatTimer) clearInterval(heartbeatTimer);
             heartbeatTimer = setInterval(() => {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send('ping');
-                }
+                if (ws && ws.readyState === WebSocket.OPEN) ws.send('ping');
             }, 15000);
-            if (reconnectTimer) {
-                clearTimeout(reconnectTimer);
-            }
+            if (reconnectTimer) clearTimeout(reconnectTimer);
         };
 
         ws.onmessage = (event) => {
@@ -267,29 +207,43 @@
         return 'INFO';
     }
 
-    function shouldShow(level) {
+    function passesContextFilter(text) {
+        const t = String(text || '').toLowerCase();
+        const taskNeedle = String(taskFilter.value || '').trim().toLowerCase();
+        const chatNeedle = String(chatFilter.value || '').trim().toLowerCase();
+        if (taskNeedle && !t.includes(taskNeedle)) return false;
+        if (chatNeedle && !t.includes(chatNeedle)) return false;
+        return true;
+    }
+
+    function shouldShow(level, text) {
         const filter = levelFilter.value;
-        if (filter === 'ALL') return true;
-        if (filter === 'ERROR') return level === 'ERROR' || level === 'CRITICAL';
-        return level === filter;
+        const byLevel = filter === 'ALL' || (filter === 'ERROR' ? (level === 'ERROR' || level === 'CRITICAL') : level === filter);
+        return byLevel && passesContextFilter(text);
     }
 
     function appendLog(text) {
-        const level = getLogLevel(text);
+        const clean = stripAnsi(text);
+        const level = getLogLevel(clean);
         const div = document.createElement('div');
         div.className = 'log-entry';
         div.dataset.level = level;
-        div.textContent = stripAnsi(text);
-        div.style.display = shouldShow(level) ? 'block' : 'none';
+        div.dataset.raw = clean;
+        div.textContent = clean;
+        div.style.display = shouldShow(level, clean) ? 'block' : 'none';
         terminal.appendChild(div);
 
-        if (terminal.childElementCount > 2000) {
-            terminal.removeChild(terminal.firstChild);
-        }
+        if (terminal.childElementCount > 2500) terminal.removeChild(terminal.firstChild);
+        if (isAutoScroll) terminal.scrollTop = terminal.scrollHeight;
+    }
 
-        if (isAutoScroll) {
-            terminal.scrollTop = terminal.scrollHeight;
-        }
+    function refreshVisibility() {
+        const entries = terminal.querySelectorAll('.log-entry');
+        entries.forEach((entry) => {
+            const level = entry.dataset.level || 'INFO';
+            const raw = entry.dataset.raw || entry.textContent || '';
+            entry.style.display = shouldShow(level, raw) ? 'block' : 'none';
+        });
     }
 
     function clearLogs() {
@@ -299,11 +253,8 @@
     function updateAutoScroll() {
         const distance = terminal.scrollHeight - terminal.scrollTop - terminal.clientHeight;
         isAutoScroll = distance < 50;
-        if (isAutoScroll) {
-            scrollButton.classList.remove('show');
-        } else {
-            scrollButton.classList.add('show');
-        }
+        if (isAutoScroll) scrollButton.classList.remove('show');
+        else scrollButton.classList.add('show');
     }
 
     function scrollToBottom() {
@@ -313,14 +264,9 @@
     }
 
     terminal.addEventListener('scroll', updateAutoScroll);
-
-    levelFilter.addEventListener('change', () => {
-        const entries = terminal.querySelectorAll('.log-entry');
-        entries.forEach((entry) => {
-            const level = entry.dataset.level || 'INFO';
-            entry.style.display = shouldShow(level) ? 'block' : 'none';
-        });
-    });
+    levelFilter.addEventListener('change', refreshVisibility);
+    taskFilter.addEventListener('input', refreshVisibility);
+    chatFilter.addEventListener('input', refreshVisibility);
 
     connect();
 </script>

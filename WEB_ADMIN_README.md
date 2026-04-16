@@ -1,326 +1,267 @@
-# Web Admin 使用手册
+# Web Admin Panel 使用手册
 
-这个文档不是首页介绍页，而是面向实际维护人员的操作手册。它主要回答三类问题：Web Admin 里每个页面是干什么的、遇到日常维护任务时应该先去哪一页、以及哪些配置和数据需要特别注意。
-
----
-
-## 1. 适合谁看
-
-如果你已经知道项目是做什么的，但接下来想搞清楚：
-
-- 登录后先看哪里
-- 标签应该怎么整理
-- 清洗、筛选、维护工具分别在哪
-- 账号、配置、日志、会话这些页面如何分工
-
-那你应该看这份文档，而不是首页 README。
+本手册说明 Web 管理面板的安装、登录、配置编辑与热重载行为。
 
 ---
 
-## 2. Web Admin 的两种页面模式
+## 1. 安装依赖
 
-3.5 之后，Web Admin 主要分成两种页面模式：
+安装 Web 面板所需依赖：
 
-### 2.1 标签工作台（editor page）
+```bash
+python3 -m pip install -r requirements.txt
+```
 
-适用于 `/tags`。
-
-这是一个持续编辑页面，重点不是“看统计”，而是把标签整理工作做顺手。页面通常分成三列：
-
-- 左侧：被管理群组
-- 中间：标签分区与编辑区域
-- 右侧：TG 预览
-
-适合做：
-
-- 重命名标签
-- 合并多个标签
-- 整理标签分区
-- 调整分区顺序
-- 一边改规则一边看预览
-
-### 2.2 工具页（tool page）
-
-适用于 `/cleaner`、`/media_filter`、`/tools`、`/account` 等页面。
-
-这类页面更强调“选目标 -> 执行动作 -> 看反馈”的节奏，适合一次完成某类维护操作，而不是长时间停留编辑。
-
-适合做：
-
-- 消息清洗
-- 媒体筛选
-- 维护动作执行
-- 账号管理
-- 目标群组切换与确认
+关键依赖包括：
+- fastapi
+- uvicorn[standard]
+- python-multipart（OAuth2 表单登录）
+- python-jose[cryptography]
+- passlib[bcrypt]
 
 ---
 
-## 3. 登录与入口
+## 2. 快速启动
 
-### 3.1 登录地址
+### 2.1 Docker 启动
+
+```bash
+export UID=$(id -u)
+export GID=$(id -g)
+docker compose up -d
+```
+
+### 2.2 本地启动
+
+```bash
+export TG_BOT_TOKEN="your_bot_token"
+python3 web_app.py
+```
+
+服务默认监听 `0.0.0.0:8000`。登录入口：`http://localhost:8000/login`。
+
+---
+
+## 3. 登录与账号配置
+
+配置文件位置：项目根目录 `config.json`。
+
+在 `config.json` 中配置 `web_users`：
+
+```json
+{
+  "web_users": [
+    {
+      "username": "admin",
+      "password_hash": "$2b$12$..."
+    }
+  ]
+}
+```
+
+### 3.1 生成 bcrypt 密码哈希
+
+推荐使用工具脚本生成哈希：
+
+```bash
+python3 utils/password_gen.py "mypassword"
+```
+
+输出的字符串直接填入 `config.json` 的 `password_hash` 字段。
+
+---
+
+## 4. 功能说明
+
+### 配置优先级
+
+### Cleaner 新增接口与行为
+
+- GET /api/cleaner/jobs 支持 limit、status、task_type、chat_id 查询参数。
+- GET /api/cleaner/monitoring 返回运行中任务数、pause 中 chat 数、最近失败任务数。
+- Cleaner runtime 对可恢复错误执行一次保守重试；权限错误、配置错误等不可恢复问题直接失败。
+- 当 bot.dry_run=true 时，Cleaner 仅扫描与统计，不执行真实删除；当 bot.dry_run=false 时，Cleaner 才执行真实删除。
+
+- Web UI 保存的是 config.json，它是业务配置的权威源。
+- .env 中旧字段（如 DRY_RUN、DELETE_DUPLICATES、TG_API_ID、TG_API_HASH、TG_BOT_TOKEN）仅保留兼容用途，不再作为 Cleaner/Web 业务行为的最终来源。
+- 若 .env 与 config.json 冲突，系统会优先采用 config.json 并在日志中输出 deprecated_env_override_ignored。
+
+### 4.1 配置编辑器
+
+- **保存 (Save)**：写入 `config.json`，并生成备份文件。
+- **热重载 (Hot Reload)**：触发运行时配置刷新。
+
+当前热重载仅会更新 `bot` 配置中的运行时字段并刷新日志级别：
+- `dry_run`
+- `delete_duplicates`
+- `log_level`
+- `tag_count`
+- `tag_build_limit`
+
+建议新增并使用 `bot.web_tg_session`（例如 `./sessions/webui`），与运行中 Bot 的 `TG_SESSION` 分离，避免 Web 维护工具触发 `database is locked`。
+`bot.target_chat_ids` 支持多目标群组（数组或在页面中按换行/逗号输入）；`target_chat_id` 保留为兼容字段。若 `target_chat_ids` 为空，维护工具会优先使用 Bot 注册表目标（`managed_chats`），为空时再回退到 Web 会话自动发现。
+维护工具页面支持“单群组执行”：可在页面下拉框选择某个群组后只对该群组发送维护指令。单群组执行前会校验 Bot 在该群组内的成员状态，仅允许 Bot 为管理员/群主的目标执行。
+系统新增 `managed_chats` 注册表（`data/bot.db`）：由 Bot 进程在 `my_chat_member` 更新和群消息事件中持续写入，用于 Web 维护工具优先读取“Bot 实际所在群组”。
+`managed_chats` 现在包含校验字段 `verified_at/verified_by`：用于标记“是否已通过权限校验、由哪个来源校验”（如 `my_chat_member`、`get_chat_member`）。
+维护工具接口支持 `GET /api/tools/targets?refresh=1` 强制同步：使用 Web Telethon 会话批量补全群组标题与用户名并回写 `managed_chats`。
+维护工具在“单群组执行”和“全量执行”前都会调用 Bot API `getChatMember` 校验 Bot 在目标群中的成员状态，仅向管理员/群主状态目标发送维护指令。
+标签页面新增“标签重命名规则（A=B）”管理：支持群组规则、全局规则、生效规则（只读）；底层与 Bot 命令 `/tag_rename` 共用 `data/tag_aliases/*.txt` 文件格式。
+
+当前代码未包含调度器重启逻辑，因此如果涉及定时任务间隔或调度器配置变更，需要重启服务才能生效。
+
+
+### 4.3 管理员身份模型（重要）
+
+系统中存在三类“管理员”，请务必区分：
+
+- **Web Admin 管理员账号 (`web_users`)**：用于登录 Web 面板。对应页面：`/users`（或 `/account`）。
+- **Telegram 控制用户 (`telegram_controllers`)**：用于通过 Telegram 指令控制 Bot。对应页面：`/telegram_controllers`。
+- **Telegram 群/频道管理员**：是 Telegram 群内权限角色，不等于系统控制用户。
+
+> 说明：`/users` 仅管理 Web 登录账号，**不等同于 Telegram 控制用户**。
+
+#### Telegram 控制用户优先级
+
+Bot 运行时控制权限采用以下优先级：
+
+1. `telegram_controllers` 表中 `enabled=1` 的用户（主控制员 + 辅助控制员）
+2. 兼容字段 `settings.controller_user_id`
+3. 若以上都不存在，首次私聊指令触发时会自动绑定当前用户（并回写兼容字段）
+
+`bot.admin_id` 仅保留兼容/通知语义（如启动通知），不再作为主要控制权限来源。
+
+#### Telegram 控制用户 API
+
+- `GET /api/telegram-controllers`：获取控制用户列表
+- `POST /api/telegram-controllers`：新增/保存控制用户
+- `PATCH /api/telegram-controllers/{user_id}`：更新备注或启停状态
+- `POST /api/telegram-controllers/{user_id}/make-primary`：设为主控制员
+- `DELETE /api/telegram-controllers/{user_id}`：删除控制用户（禁止删除唯一启用主控制员）
+
+### 4.2 备份机制
+
+每次保存配置后会生成备份文件：
+- `./config.json.bak.<时间戳>`
+- `./backups/config.json.bak.<时间戳>`
+
+---
+
+## 5. API 文档摘要
+
+### 5.1 获取 Token
+
+```bash
+curl -X POST http://localhost:8000/api/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin&password=your_password"
+```
+
+### 5.2 获取配置
+
+```bash
+curl -X GET http://localhost:8000/api/config \
+  -H "Authorization: Bearer <token>"
+```
+
+### 5.3 更新配置
+
+```bash
+curl -X PUT http://localhost:8000/api/config \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"data": {...}}'
+```
+
+---
+
+## 6. 页面入口
 
 - 登录页：`/login`
 - 仪表盘：`/`
+- Bot 设置：`/bot_settings`
+- Web 管理员账号：`/users`（或 `/account`）
+- Telegram 控制用户：`/telegram_controllers`
+- 配置编辑器：`/config_editor`
 
-### 3.2 登录方式
 
-Web Admin 账号定义在 `config.json` 的 `web_users` 中，密码使用 bcrypt 哈希保存。生产环境不要把明文密码写进仓库或镜像。
+## Frontend UX Modes
 
-### 3.3 登录后先看哪里
+The Web Admin frontend now follows two page modes:
 
-如果你刚登录后台，推荐按这个顺序判断：
+- `editor page`: used by `/tags`, focused on sustained editing work. Layout is `resource list -> workspace -> preview`.
+- `tool page`: used by `/cleaner`, `/media_filter`, `/tools`, focused on parameter selection and immediate execution.
 
-1. **只是想进入某个维护动作**：直接去对应工具页
-2. **想整理标签结构和预览效果**：先去 `/tags`
-3. **想检查系统是不是正常**：先看首页入口，再看日志/配置页
+### Shared Interaction Rules
 
----
+- Only one primary vertical scroll region should dominate each page.
+- Target selectors must only show groups where `bot_can_manage == true`.
+- Toast feedback should be lightweight and fast; confirmations are reserved for destructive actions.
+- Keep motion subtle and short; prioritize stability and responsiveness over flourish.
+- Apple-style visual direction is preferred: restrained surfaces, clear hierarchy, calm spacing, low-noise controls.
 
-## 4. 标签工作台怎么用
+### Tags Workspace Rules
 
-`/tags` 是 3.5 最核心的页面之一，也是最适合长期维护的工作区。
+- The tags page is a workbench, not a dashboard.
+- Clicking a tag opens the editor inside the current section card, not in a floating unstable position.
+- TG preview remains fixed and should not disappear during editing.
+- Raw text mode is considered advanced/compatibility mode and should not be the primary path.
 
-### 4.1 页面职责
+### Tool Page Rules
 
-这个页面的重点不是简单展示标签，而是支持你持续做这些事情：
+- Cleaner, media filter, and tools pages should use the same page rhythm: target/scope area -> main task area -> feedback/help text.
+- Reuse copy tone and target-group behaviors consistently across these pages.
 
-- 找到目标群组
-- 看现有分区结构
-- 编辑标签名称和归属位置
-- 预览最终输出
-- 减少在多个浮层和文本区域之间来回切换
 
-### 4.2 3.5 之后更适合怎么用
+## 7. 4.0 升级总结
 
-推荐把它当作“标签整理后台”，而不是临时改几行文本的地方：
+本次 `4.0` 版本主要聚焦于 Web Admin 前端交互重构与维护工作流整合，重点变化如下：
 
-- 标签结构复杂时，优先用分区工作台
-- 批量整理时，优先用多选 + 合并
-- 想确认最终效果时，优先看右侧 TG 预览
-- 原始文本模式只保留给兼容或高级场景，不建议作为主工作流
+- **整体页面范式重构**
+  - 前端分为两种模式：
+    - `editor page`：用于 `/tags`，聚焦持续编辑与预览
+    - `tool page`：用于 `/cleaner`、`/media_filter`、`/tools`、`/filters`、`/account`
+  - 统一了基础壳层、间距、按钮、提示、滚动规则与视觉层级。
 
-### 4.3 常见整理动作
+- **标签工作台升级**
+  - 标签管理页从旧文本编辑模式升级为“分区工作台”。
+  - 左侧显示被管理群组，中间编辑标签目录，右侧固定 TG 预览。
+  - 点击标签后，在当前分区标题下方直接编辑，不再依赖不稳定的浮层。
+  - 支持：
+    - 单标签重命名规则
+    - 多选模式
+    - 多标签合并到同一目标标签
+    - 分区内新增标签
+    - 分区排序（上移/下移）
+    - 标签移动到其他分区
+    - 新建分区并移动（后续可继续扩展）
 
-#### 单标签编辑
+- **Bot 联动一致性增强**
+  - Web Admin 与 Bot 命令继续共用同一套标签文件和 alias 规则。
+  - Web 侧的 TG 预览尽量贴近 Bot 实际输出，减少“改完靠猜”的情况。
 
-适合修正某个标签名称、微调结构或快速排错。
+- **目标群组选择统一**
+  - 多个页面统一只显示 `bot_can_manage == true` 的群组。
+  - `tags`、`cleaner`、`media_filter`、`tools` 的目标群组行为已统一。
 
-#### 多选与合并
+- **工具页体验优化**
+  - 消息清洗、媒体筛选、维护工具、屏蔽词管理、账号管理均已收口到统一工具页风格。
+  - 提升了可读性、层级感、对比度与执行反馈的一致性。
 
-适合长期运行后标签命名逐渐发散、需要收敛到统一规则的场景。
+- **可用性修复**
+  - 修复 `/account` 404，兼容到账号管理页。
+  - 提升屏蔽词列表可读性。
+  - 修复多处 tags 页面脚本与交互反馈问题。
 
-#### 分区排序
+### 4.0 使用建议
 
-适合整理信息展示顺序，让常用内容更靠前。
+- 标签整理优先在 `/tags` 中进行，不建议再以原始文本为主。
+- 原始文本模式保留为兼容/高级入口，仅在批量导入或故障排查时使用。
+- 对复杂标签整理任务，优先使用：
+  - 单标签编辑条
+  - 多选模式
+  - TG 预览
 
-#### 跨分区移动
+### 版本标识
 
-适合把标签从旧分区迁移到新结构，而不是删掉重建。
-
-#### 新建分区并移动
-
-适合一次整理整类标签，而不是一点点挪动。
-
----
-
-## 5. 工具页怎么用
-
-3.5 之后，工具页尽量统一成一套节奏：
-
-1. 先确认目标群组
-2. 再确认参数或执行方式
-3. 最后执行并查看反馈
-
-### 5.1 Cleaner
-
-适合对指定目标执行清洗类动作。使用前建议先确认目标群组和执行范围，不要把工具页当作“盲点一下看看”。
-
-### 5.2 Media Filter
-
-适合处理媒体筛选策略与相关执行动作。若你需要频繁重复同类筛选操作，这一页应该作为主要入口，而不是靠临时命令或零散脚本。
-
-### 5.3 Tools
-
-适合集中执行维护类动作。它更像运维动作面板，而不是配置编辑页。
-
-### 5.4 Account
-
-`/account` 现在已经兼容到账号管理页，不再出现过去那种 404 断路。
-
----
-
-## 6. 目标群组选择规则
-
-3.5 之后，一个非常重要的统一规则是：
-
-多个页面只显示 `bot_can_manage == true` 的群组作为可操作目标。
-
-这带来的好处是：
-
-- 减少把动作发到不该操作目标的概率
-- 降低“页面里看得到，但其实 Bot 不能执行”的混乱
-- 让 `/tags`、`/cleaner`、`/media_filter`、`/tools` 的行为更一致
-
-如果某个目标没出现在下拉列表里，优先检查的不是前端，而是：
-
-- Bot 是否真的在该群里
-- Bot 是否具有管理权限
-- `managed_chats` 注册表是否已同步更新
-
----
-
-## 7. 配置编辑与热重载
-
-### 7.1 配置来源
-
-配置文件位于项目根目录的 `config.json`。
-
-### 7.2 配置编辑器做什么
-
-配置编辑器适合处理：
-
-- Web Admin 相关配置
-- Bot 运行时配置
-- 一些需要通过 JSON 直接维护的参数
-
-### 7.3 保存与热重载的区别
-
-- **保存（Save）**：写入 `config.json`，并生成备份
-- **热重载（Hot Reload）**：刷新当前支持运行时更新的配置项
-
-### 7.4 需要重启的场景
-
-当前并不是所有配置变更都能热重载生效。涉及调度器间隔、某些初始化逻辑或启动期依赖时，仍需要重启服务。
-
----
-
-## 8. 账号、会话与数据隔离建议
-
-### 8.1 Web Admin 账号
-
-Web 登录用户和 Bot 运行逻辑应该逻辑隔离，不要把管理账号当作业务账号使用。
-
-### 8.2 Web 会话与 Bot 会话
-
-建议把 `bot.web_tg_session` 与 Bot 运行中的正式会话分开，避免维护工具与运行中 Bot 争抢同一个 session 文件，降低 `database is locked` 风险。
-
-### 8.3 数据目录
-
-运行中请始终把这些数据留在挂载目录中，而不是仓库里：
-
-- 数据库
-- 标签分组文件
-- 标签别名文件
-- sessions
-- backups
-
----
-
-## 9. 3.5 版本变化，日常使用上该怎么调整
-
-如果你以前已经在用旧版后台，3.5 之后最值得改变的使用习惯是：
-
-- 不再把 `/tags` 当作“文本编辑器”用，而是当作持续整理工作台
-- 不再依赖不稳定浮层做主要编辑路径
-- 在工具页里先确认目标，再执行动作
-- 遇到标签整理任务时，优先用多选、分区、预览配合完成
-
-换句话说，3.5 不是只加了功能，而是把后台使用方式从“零碎操作集合”推向“有稳定节奏的工作流”。
-
----
-
-## 10. API 与自动化入口
-
-如果你不是手动点页面，而是要做外部调用，可以优先关注这些入口：
-
-- `POST /api/token`：获取登录 token
-- `GET /api/config`：读取配置
-- `PUT /api/config`：更新配置
-- `/api/tools/*`：维护工具相关接口
-- `/api/tags/*`：标签工作台相关接口
-
-对于自动化调用，建议始终带上明确目标，不要把页面行为和接口行为混在一起理解。
-
----
-
-## 11. Bot 命令参考
-
-虽然这份文档主要讲 Web Admin，但很多实际维护动作仍然会和 Bot 命令一起使用，所以这里补一份面向操作人员的命令参考。
-
-### 11.1 基础命令
-
-- `/start`：启动欢迎信息，显示版本、Web 面板入口和当前模式
-- `/help`：查看完整指令列表
-- `/menu`：打开主控按钮面板
-- `/ping`：健康检查
-- `/stats`：查看当前 chat 统计
-- `/mode`：查看或设置当前 chat 模式
-- `/status`：查看当前 chat 任务状态
-
-### 11.2 扫描与去重
-
-- `/scan [N]`
-- `/scan <chat> [N]`
-- `/scan_delete [N]`
-- `/scan_delete <chat> [N]`
-- `/scan_status`
-- `/scan_stop`
-- `/flush [N]`
-
-适合在你先确认目标、再决定是否真的执行历史处理动作时使用。涉及删除的命令，推荐先确认 dry-run 状态。
-
-### 11.3 标签命令
-
-- `/tags_pin [N] [MAX]`
-- `/tags_pin <chat> [N] [MAX]`
-- `/tag_pin`
-- `/tag_build`
-- `/tag_build_status`
-- `/tag_build_stop`
-- `/tag_rebuild [N|all]`
-- `/tag_update`
-- `/tag_stop`
-- `/tag_count [N]`
-- `/tag_rename [global] #旧=#新`
-- `/tag_rename [global] list`
-- `/tag_rename [global] del #旧标签`
-
-这些命令和 `/tags` 页面是互补关系：
-
-- `/tags` 更适合持续整理和预览
-- Bot 命令更适合直接在目标场景里触发动作、查询状态和执行批处理
-
-### 11.4 文本规则命令
-
-- `/text_block [global] list`
-- `/text_block [global] add 关键词`
-- `/text_block [global] del 关键词`
-
-适合快速维护屏蔽词，而不必每次都先进入 Web 页面。
-
-### 11.5 Session / Telethon 命令
-
-- `/session_status`
-- `/session_login`
-- `/session_qr`
-- `/session_code`
-- `/session_password`
-- `/session_logout`
-- `/session_reset`
-
-这些命令通常建议在私聊中完成，避免把登录过程暴露在业务群组里。
-
-### 11.6 命令使用建议
-
-- 涉及历史扫描、标签生成、标签重建等命令，通常依赖 Telethon 用户 session。
-- 涉及 `<chat>` 参数的命令，优先使用明确目标，不要在多群维护场景里靠上下文猜测。
-- `/tags` 负责整理结构，Bot 命令负责执行动作，两者一起用时效率最高。
-
----
-
-## 12. 使用建议总结
-
-- 首页 README 适合第一次了解项目定位和场景。
-- 这份文档适合真正开始操作 Web Admin 时使用。
-- 如果你是持续维护人员，建议优先熟悉 `/tags`、`/tools`、`/cleaner`、`/account` 四类页面的分工。
-- 如果你要写发布说明，优先用首页 README；如果你要指导操作人员，优先看这份手册。
+- FastAPI 应用版本：`4.0`
+- Docker 镜像标签建议：`telegram_mediachanel_manager_bot:4.0`

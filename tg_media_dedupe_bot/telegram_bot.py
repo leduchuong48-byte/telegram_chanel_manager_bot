@@ -36,6 +36,7 @@ from telegram.ext import (
 
 from tg_media_dedupe_bot import __version__
 from tg_media_dedupe_bot.config import Config, load_config
+from tg_media_dedupe_bot.controller_auth import resolve_controller_policy
 from tg_media_dedupe_bot.db import Database
 from tg_media_dedupe_bot.models import MediaItem, ProcessDecision
 from tg_media_dedupe_bot.telethon_scan import ScanResult, run_scan
@@ -1475,6 +1476,7 @@ def run_bot() -> None:
         media_key: str,
         reason: str,
         context: ContextTypes.DEFAULT_TYPE,
+        event_type: str,
     ) -> bool:
         async with db_lock:
             db.add_pending_deletion(
@@ -1483,8 +1485,44 @@ def run_bot() -> None:
                 media_key=media_key,
                 reason=reason,
             )
+            db.record_deletion_event(
+                chat_id=chat_id,
+                message_id=message_id,
+                event_type=event_type,
+                reason=reason,
+                result="matched",
+                detail=None,
+            )
         dry_run, delete_enabled = await _effective_mode(chat_id)
-        if dry_run or not delete_enabled:
+        if dry_run:
+            async with db_lock:
+                db.record_deletion_event(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    event_type="skipped_observe_mode",
+                    reason=reason,
+                    result="skipped",
+                    detail="dry_run=1",
+                )
+            log.warning(
+                "skip_delete reason=%s chat=%s msg=%s dry_run=%s delete_enabled=%s",
+                reason,
+                chat_id,
+                message_id,
+                int(dry_run),
+                int(delete_enabled),
+            )
+            return False
+        if not delete_enabled:
+            async with db_lock:
+                db.record_deletion_event(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    event_type="skipped_delete_disabled",
+                    reason=reason,
+                    result="skipped",
+                    detail="delete_enabled=0",
+                )
             log.warning(
                 "skip_delete reason=%s chat=%s msg=%s dry_run=%s delete_enabled=%s",
                 reason,
@@ -1505,6 +1543,14 @@ def run_bot() -> None:
                     result="failed",
                     error=str(exc),
                 )
+                db.record_deletion_event(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    event_type="delete_failed",
+                    reason=reason,
+                    result="failed",
+                    detail=str(exc),
+                )
             log.exception("delete_failed reason=%s chat=%s msg=%s", reason, chat_id, message_id)
             return False
 
@@ -1517,6 +1563,14 @@ def run_bot() -> None:
                 error=None,
             )
             db.remove_pending_deletion(chat_id=chat_id, message_id=message_id)
+            db.record_deletion_event(
+                chat_id=chat_id,
+                message_id=message_id,
+                event_type="delete_succeeded",
+                reason=reason,
+                result="success",
+                detail=None,
+            )
         log.warning("deleted reason=%s chat=%s msg=%s", reason, chat_id, message_id)
         return True
 
@@ -1685,13 +1739,28 @@ def run_bot() -> None:
         chat = update.effective_chat
         if user is None or chat is None:
             return False
+
         async with db_lock:
-            current = db.get_setting("controller_user_id")
-            if current is None:
+            controller_rows = db.list_telegram_controllers(enabled_only=False)
+            legacy = db.get_setting("controller_user_id")
+            policy = resolve_controller_policy(
+                controller_rows=controller_rows,
+                legacy_controller_id=legacy,
+                current_user_id=int(user.id),
+            )
+            if policy.auto_bind_legacy:
+                db.upsert_telegram_controller(
+                    user_id=int(user.id),
+                    display_name="",
+                    enabled=True,
+                    is_primary=True,
+                    source="legacy_auto_bind",
+                    role="owner",
+                )
                 db.set_setting("controller_user_id", str(int(user.id)))
-                current = str(int(user.id))
-        if int(current) != int(user.id):
-            await context.bot.send_message(chat_id=chat.id, text=f"该 Bot 已绑定控制用户：{current}")
+
+        if int(user.id) not in policy.allowed_ids:
+            await context.bot.send_message(chat_id=chat.id, text=f"该 Bot 已绑定控制用户：{policy.primary_id}")
             return False
         return True
 
@@ -5173,6 +5242,7 @@ def run_bot() -> None:
                 media_key=f"text:{message.message_id}",
                 reason="media_blacklist:text",
                 context=context,
+                event_type="matched_text_blacklist",
             )
             return
 
@@ -5188,6 +5258,7 @@ def run_bot() -> None:
                     media_key=f"ad:{message.message_id}",
                     reason="ad_block",
                     context=context,
+                    event_type="matched_ad_block",
                 )
                 return
 
@@ -5212,6 +5283,7 @@ def run_bot() -> None:
                 media_key=item.media_key,
                 reason=f"media_blacklist:{blocked_type}",
                 context=context,
+                event_type="matched_media_blacklist",
             )
             return
 
@@ -5227,6 +5299,7 @@ def run_bot() -> None:
                     media_key=item.media_key,
                     reason="ad_block",
                     context=context,
+                    event_type="matched_ad_block",
                 )
                 return
 
@@ -5263,8 +5336,44 @@ def run_bot() -> None:
                 media_key=item.media_key,
                 reason=decision.reason,
             )
+            db.record_deletion_event(
+                chat_id=item.chat_id,
+                message_id=delete_id,
+                event_type="matched_duplicate",
+                reason=decision.reason,
+                result="matched",
+                detail=f"canonical={decision.canonical_message_id}",
+            )
 
-        if dry_run or not delete_enabled:
+        if dry_run:
+            async with db_lock:
+                db.record_deletion_event(
+                    chat_id=item.chat_id,
+                    message_id=delete_id,
+                    event_type="skipped_observe_mode",
+                    reason=decision.reason,
+                    result="skipped",
+                    detail="dry_run=1",
+                )
+            log.warning(
+                "dry_run skip_delete chat=%s delete_msg=%s canonical=%s key=%s reason=%s",
+                item.chat_id,
+                delete_id,
+                decision.canonical_message_id,
+                item.media_key,
+                decision.reason,
+            )
+            return
+        if not delete_enabled:
+            async with db_lock:
+                db.record_deletion_event(
+                    chat_id=item.chat_id,
+                    message_id=delete_id,
+                    event_type="skipped_delete_disabled",
+                    reason=decision.reason,
+                    result="skipped",
+                    detail="delete_enabled=0",
+                )
             log.warning(
                 "dry_run skip_delete chat=%s delete_msg=%s canonical=%s key=%s reason=%s",
                 item.chat_id,
@@ -5280,6 +5389,14 @@ def run_bot() -> None:
             if existing is not None and (existing.result == "success" or not config.retry_failed_deletes):
                 if existing.result == "success":
                     db.remove_pending_deletion(chat_id=item.chat_id, message_id=delete_id)
+                db.record_deletion_event(
+                    chat_id=item.chat_id,
+                    message_id=delete_id,
+                    event_type="skipped_already_attempted",
+                    reason=decision.reason,
+                    result="skipped",
+                    detail=f"result={existing.result}",
+                )
                 log.info(
                     "skip_delete_already_attempted chat=%s delete_msg=%s result=%s",
                     item.chat_id,
@@ -5299,6 +5416,14 @@ def run_bot() -> None:
                     result="failed",
                     error=str(exc),
                 )
+                db.record_deletion_event(
+                    chat_id=item.chat_id,
+                    message_id=delete_id,
+                    event_type="delete_failed",
+                    reason=decision.reason,
+                    result="failed",
+                    detail=str(exc),
+                )
             log.exception("delete_failed chat=%s msg=%s", item.chat_id, delete_id)
             return
 
@@ -5311,6 +5436,14 @@ def run_bot() -> None:
                 error=None,
             )
             db.remove_pending_deletion(chat_id=item.chat_id, message_id=delete_id)
+            db.record_deletion_event(
+                chat_id=item.chat_id,
+                message_id=delete_id,
+                event_type="delete_succeeded",
+                reason=decision.reason,
+                result="success",
+                detail=None,
+            )
         log.warning(
             "deleted chat=%s delete_msg=%s canonical=%s key=%s",
             item.chat_id,

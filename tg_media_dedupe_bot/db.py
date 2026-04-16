@@ -104,11 +104,175 @@ class Database:
 
             self._conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS deletion_events (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  chat_id INTEGER NOT NULL,
+                  message_id INTEGER NOT NULL,
+                  event_type TEXT NOT NULL,
+                  reason TEXT NOT NULL,
+                  result TEXT NOT NULL,
+                  detail TEXT,
+                  created_at INTEGER NOT NULL
+                );
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_deletion_events_chat_created
+                ON deletion_events(chat_id, created_at DESC);
+                """
+            )
+
+            self._conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS settings (
                   key TEXT NOT NULL PRIMARY KEY,
                   value TEXT NOT NULL,
                   updated_at INTEGER NOT NULL
                 );
+                """
+            )
+
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS telegram_controllers (
+                  user_id INTEGER NOT NULL PRIMARY KEY,
+                  display_name TEXT NOT NULL DEFAULT '',
+                  role TEXT NOT NULL DEFAULT 'operator',
+                  enabled INTEGER NOT NULL DEFAULT 1,
+                  is_primary INTEGER NOT NULL DEFAULT 0,
+                  source TEXT NOT NULL DEFAULT '',
+                  created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL,
+                  last_verified_at INTEGER NOT NULL DEFAULT 0
+                );
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_telegram_controllers_primary_enabled
+                ON telegram_controllers(is_primary, enabled, updated_at DESC);
+                """
+            )
+
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS jobs (
+                  job_id TEXT NOT NULL PRIMARY KEY,
+                  chat_id INTEGER NOT NULL,
+                  task_type TEXT NOT NULL,
+                  payload_json TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  priority INTEGER NOT NULL DEFAULT 0,
+                  created_at INTEGER NOT NULL,
+                  started_at INTEGER NOT NULL DEFAULT 0,
+                  finished_at INTEGER NOT NULL DEFAULT 0,
+                  last_error TEXT,
+                  scanned INTEGER NOT NULL DEFAULT 0,
+                  matched INTEGER NOT NULL DEFAULT 0,
+                  acted INTEGER NOT NULL DEFAULT 0,
+                  failed INTEGER NOT NULL DEFAULT 0,
+                  attempt_count INTEGER NOT NULL DEFAULT 0,
+                  max_attempts INTEGER NOT NULL DEFAULT 3,
+                  next_run_at INTEGER NOT NULL DEFAULT 0,
+                  worker_id TEXT NOT NULL DEFAULT '',
+                  lease_expires_at INTEGER NOT NULL DEFAULT 0,
+                  last_heartbeat_at INTEGER NOT NULL DEFAULT 0,
+                  terminal_reason TEXT NOT NULL DEFAULT '',
+                  retryable_class TEXT NOT NULL DEFAULT '',
+                  submitted_by TEXT NOT NULL DEFAULT '',
+                  session_snapshot_json TEXT NOT NULL DEFAULT '{}',
+                  target_snapshot_json TEXT NOT NULL DEFAULT '{}',
+                  policy_snapshot_json TEXT NOT NULL DEFAULT '{}'
+                );
+                """
+            )
+
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS job_events (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  job_id TEXT NOT NULL,
+                  event_type TEXT NOT NULL,
+                  event_payload_json TEXT NOT NULL DEFAULT '{}',
+                  created_at INTEGER NOT NULL,
+                  FOREIGN KEY(job_id) REFERENCES jobs(job_id) ON DELETE CASCADE
+                );
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_job_events_job_created
+                ON job_events(job_id, created_at DESC, id DESC);
+                """
+            )
+
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS target_locks (
+                  lock_key TEXT NOT NULL PRIMARY KEY,
+                  job_id TEXT NOT NULL,
+                  worker_id TEXT NOT NULL DEFAULT '',
+                  lease_expires_at INTEGER NOT NULL DEFAULT 0,
+                  created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL
+                );
+                """
+            )
+
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS dead_letter_actions (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  job_id TEXT NOT NULL,
+                  action TEXT NOT NULL,
+                  actor TEXT NOT NULL DEFAULT '',
+                  note TEXT NOT NULL DEFAULT '',
+                  created_at INTEGER NOT NULL,
+                  FOREIGN KEY(job_id) REFERENCES jobs(job_id) ON DELETE CASCADE
+                );
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_dead_letter_actions_job_created
+                ON dead_letter_actions(job_id, created_at DESC, id DESC);
+                """
+            )
+
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS job_checkpoints (
+                  job_id TEXT NOT NULL,
+                  stage TEXT NOT NULL,
+                  cursor_json TEXT NOT NULL,
+                  updated_at INTEGER NOT NULL,
+                  PRIMARY KEY(job_id, stage),
+                  FOREIGN KEY(job_id) REFERENCES jobs(job_id) ON DELETE CASCADE
+                );
+                """
+            )
+
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS job_actions (
+                  idempotency_key TEXT NOT NULL PRIMARY KEY,
+                  job_id TEXT NOT NULL,
+                  chat_id INTEGER NOT NULL,
+                  message_id INTEGER NOT NULL,
+                  action TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  attempts INTEGER NOT NULL DEFAULT 1,
+                  error TEXT,
+                  updated_at INTEGER NOT NULL,
+                  FOREIGN KEY(job_id) REFERENCES jobs(job_id) ON DELETE CASCADE
+                );
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_job_actions_job_status
+                ON job_actions(job_id, status, updated_at DESC);
                 """
             )
 
@@ -177,6 +341,9 @@ class Database:
                 """
             )
             self._ensure_managed_chats_schema()
+            self._ensure_telegram_controllers_schema()
+            self._ensure_job_progress_schema()
+            self._ensure_cleaner_control_plane_schema()
 
     def _ensure_tag_library_schema(self) -> None:
         rows = self._conn.execute("PRAGMA table_info(tag_library)").fetchall()
@@ -207,6 +374,106 @@ class Database:
             """
         )
 
+    def _ensure_job_progress_schema(self) -> None:
+        rows = self._conn.execute("PRAGMA table_info(jobs)").fetchall()
+        if not rows:
+            return
+        columns = {str(row["name"]) for row in rows}
+        migrations: list[tuple[str, str]] = [
+            ("scanned", "ALTER TABLE jobs ADD COLUMN scanned INTEGER NOT NULL DEFAULT 0"),
+            ("matched", "ALTER TABLE jobs ADD COLUMN matched INTEGER NOT NULL DEFAULT 0"),
+            ("acted", "ALTER TABLE jobs ADD COLUMN acted INTEGER NOT NULL DEFAULT 0"),
+            ("failed", "ALTER TABLE jobs ADD COLUMN failed INTEGER NOT NULL DEFAULT 0"),
+        ]
+        for column, sql in migrations:
+            if column in columns:
+                continue
+            try:
+                self._conn.execute(sql)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
+
+
+    def _ensure_cleaner_control_plane_schema(self) -> None:
+        rows = self._conn.execute("PRAGMA table_info(jobs)").fetchall()
+        if not rows:
+            return
+        columns = {str(row["name"]) for row in rows}
+        migrations: list[tuple[str, str]] = [
+            ("attempt_count", "ALTER TABLE jobs ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0"),
+            ("max_attempts", "ALTER TABLE jobs ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3"),
+            ("next_run_at", "ALTER TABLE jobs ADD COLUMN next_run_at INTEGER NOT NULL DEFAULT 0"),
+            ("worker_id", "ALTER TABLE jobs ADD COLUMN worker_id TEXT NOT NULL DEFAULT ''"),
+            ("lease_expires_at", "ALTER TABLE jobs ADD COLUMN lease_expires_at INTEGER NOT NULL DEFAULT 0"),
+            ("last_heartbeat_at", "ALTER TABLE jobs ADD COLUMN last_heartbeat_at INTEGER NOT NULL DEFAULT 0"),
+            ("terminal_reason", "ALTER TABLE jobs ADD COLUMN terminal_reason TEXT NOT NULL DEFAULT ''"),
+            ("retryable_class", "ALTER TABLE jobs ADD COLUMN retryable_class TEXT NOT NULL DEFAULT ''"),
+            ("submitted_by", "ALTER TABLE jobs ADD COLUMN submitted_by TEXT NOT NULL DEFAULT ''"),
+            ("session_snapshot_json", "ALTER TABLE jobs ADD COLUMN session_snapshot_json TEXT NOT NULL DEFAULT '{}'"),
+            ("target_snapshot_json", "ALTER TABLE jobs ADD COLUMN target_snapshot_json TEXT NOT NULL DEFAULT '{}'"),
+            ("policy_snapshot_json", "ALTER TABLE jobs ADD COLUMN policy_snapshot_json TEXT NOT NULL DEFAULT '{}'"),
+        ]
+        for column, sql in migrations:
+            if column in columns:
+                continue
+            try:
+                self._conn.execute(sql)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
+
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS job_events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              job_id TEXT NOT NULL,
+              event_type TEXT NOT NULL,
+              event_payload_json TEXT NOT NULL DEFAULT '{}',
+              created_at INTEGER NOT NULL,
+              FOREIGN KEY(job_id) REFERENCES jobs(job_id) ON DELETE CASCADE
+            );
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_job_events_job_created
+            ON job_events(job_id, created_at DESC, id DESC);
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS target_locks (
+              lock_key TEXT NOT NULL PRIMARY KEY,
+              job_id TEXT NOT NULL,
+              worker_id TEXT NOT NULL DEFAULT '',
+              lease_expires_at INTEGER NOT NULL DEFAULT 0,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            );
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS dead_letter_actions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              job_id TEXT NOT NULL,
+              action TEXT NOT NULL,
+              actor TEXT NOT NULL DEFAULT '',
+              note TEXT NOT NULL DEFAULT '',
+              created_at INTEGER NOT NULL,
+              FOREIGN KEY(job_id) REFERENCES jobs(job_id) ON DELETE CASCADE
+            );
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_dead_letter_actions_job_created
+            ON dead_letter_actions(job_id, created_at DESC, id DESC);
+            """
+        )
+
+
     def _ensure_managed_chats_schema(self) -> None:
         rows = self._conn.execute("PRAGMA table_info(managed_chats)").fetchall()
         if not rows:
@@ -220,6 +487,30 @@ class Database:
             ("updated_at", "ALTER TABLE managed_chats ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"),
             ("verified_at", "ALTER TABLE managed_chats ADD COLUMN verified_at INTEGER NOT NULL DEFAULT 0"),
             ("verified_by", "ALTER TABLE managed_chats ADD COLUMN verified_by TEXT NOT NULL DEFAULT ''"),
+        ]
+        for column, sql in migrations:
+            if column in columns:
+                continue
+            try:
+                self._conn.execute(sql)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
+
+    def _ensure_telegram_controllers_schema(self) -> None:
+        rows = self._conn.execute("PRAGMA table_info(telegram_controllers)").fetchall()
+        if not rows:
+            return
+        columns = {str(row["name"]) for row in rows}
+        migrations: list[tuple[str, str]] = [
+            ("display_name", "ALTER TABLE telegram_controllers ADD COLUMN display_name TEXT NOT NULL DEFAULT ''"),
+            ("role", "ALTER TABLE telegram_controllers ADD COLUMN role TEXT NOT NULL DEFAULT 'operator'"),
+            ("enabled", "ALTER TABLE telegram_controllers ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1"),
+            ("is_primary", "ALTER TABLE telegram_controllers ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0"),
+            ("source", "ALTER TABLE telegram_controllers ADD COLUMN source TEXT NOT NULL DEFAULT ''"),
+            ("created_at", "ALTER TABLE telegram_controllers ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0"),
+            ("updated_at", "ALTER TABLE telegram_controllers ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0"),
+            ("last_verified_at", "ALTER TABLE telegram_controllers ADD COLUMN last_verified_at INTEGER NOT NULL DEFAULT 0"),
         ]
         for column, sql in migrations:
             if column not in columns:
@@ -643,6 +934,79 @@ class Database:
                 (chat_id, message_id, media_key, now, result, error),
             )
 
+    def record_deletion_event(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        event_type: str,
+        reason: str,
+        result: str,
+        detail: str | None = None,
+    ) -> None:
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO deletion_events(
+                  chat_id, message_id, event_type, reason, result, detail, created_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(chat_id),
+                    int(message_id),
+                    str(event_type).strip(),
+                    str(reason).strip(),
+                    str(result).strip(),
+                    None if detail is None else str(detail),
+                    now,
+                ),
+            )
+
+    def list_deletion_events(
+        self,
+        *,
+        chat_id: int | None = None,
+        limit: int = 100,
+        event_type: str | None = None,
+    ) -> list[dict[str, int | str | None]]:
+        safe_limit = max(1, min(int(limit), 1000))
+        where: list[str] = []
+        params: list[object] = []
+        if chat_id is not None:
+            where.append("chat_id=?")
+            params.append(int(chat_id))
+        if event_type:
+            where.append("event_type=?")
+            params.append(str(event_type).strip())
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        rows = self._conn.execute(
+            f"""
+            SELECT id, chat_id, message_id, event_type, reason, result, detail, created_at
+            FROM deletion_events
+            {where_sql}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            [*params, safe_limit],
+        ).fetchall()
+        result: list[dict[str, int | str | None]] = []
+        for row in rows:
+            result.append(
+                {
+                    "id": int(row["id"]),
+                    "chat_id": int(row["chat_id"]),
+                    "message_id": int(row["message_id"]),
+                    "event_type": str(row["event_type"] or ""),
+                    "reason": str(row["reason"] or ""),
+                    "result": str(row["result"] or ""),
+                    "detail": None if row["detail"] is None else str(row["detail"]),
+                    "created_at": int(row["created_at"]),
+                }
+            )
+        return result
+
     def process_media(self, item: MediaItem) -> ProcessDecision:
         now = int(time.time())
 
@@ -785,6 +1149,482 @@ class Database:
         if row is None:
             return None
         return int(row["canonical_message_id"])
+
+    def create_job(
+        self,
+        *,
+        job_id: str,
+        chat_id: int,
+        task_type: str,
+        payload_json: str,
+        priority: int,
+    ) -> None:
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO jobs(
+                  job_id, chat_id, task_type, payload_json,
+                  status, priority, created_at, started_at, finished_at, last_error,
+                  scanned, matched, acted, failed,
+                  attempt_count, max_attempts, next_run_at, worker_id, lease_expires_at,
+                  last_heartbeat_at, terminal_reason, retryable_class, submitted_by,
+                  session_snapshot_json, target_snapshot_json, policy_snapshot_json
+                )
+                VALUES(
+                  ?, ?, ?, ?, 'pending', ?, ?, 0, 0, NULL,
+                  0, 0, 0, 0,
+                  0, 3, ?, '', 0,
+                  0, '', '', '',
+                  '{}', '{}', '{}'
+                )
+                ON CONFLICT(job_id) DO NOTHING
+                """,
+                (job_id, int(chat_id), task_type, payload_json, int(priority), now, now),
+            )
+
+    def get_job(self, job_id: str) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM jobs WHERE job_id=?",
+            (job_id,),
+        ).fetchone()
+
+    def append_job_event(self, *, job_id: str, event_type: str, payload_json: str = '{}') -> None:
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO job_events(job_id, event_type, event_payload_json, created_at)
+                VALUES(?, ?, ?, ?)
+                """,
+                (job_id, event_type, payload_json, now),
+            )
+
+    def list_job_events(self, job_id: str, *, limit: int = 200) -> list[sqlite3.Row]:
+        safe_limit = max(1, min(int(limit), 2000))
+        rows = self._conn.execute(
+            """
+            SELECT *
+            FROM job_events
+            WHERE job_id=?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (job_id, safe_limit),
+        ).fetchall()
+        return list(rows)
+
+    def set_job_retry_wait(
+        self,
+        *,
+        job_id: str,
+        attempt_count: int,
+        next_run_at: int,
+        retryable_class: str,
+        error: str,
+    ) -> None:
+        with self._conn:
+            self._conn.execute(
+                """
+                UPDATE jobs
+                SET status='retry_wait',
+                    attempt_count=?,
+                    next_run_at=?,
+                    retryable_class=?,
+                    last_error=?,
+                    finished_at=0
+                WHERE job_id=?
+                """,
+                (int(attempt_count), int(next_run_at), str(retryable_class), str(error), job_id),
+            )
+
+    def mark_job_dead_letter(
+        self,
+        *,
+        job_id: str,
+        attempt_count: int,
+        retryable_class: str,
+        terminal_reason: str,
+        error: str,
+    ) -> None:
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                UPDATE jobs
+                SET status='dead_letter',
+                    attempt_count=?,
+                    retryable_class=?,
+                    terminal_reason=?,
+                    last_error=?,
+                    finished_at=?
+                WHERE job_id=?
+                """,
+                (int(attempt_count), str(retryable_class), str(terminal_reason), str(error), now, job_id),
+            )
+
+    def list_dead_letter_jobs(self, *, limit: int = 200) -> list[sqlite3.Row]:
+        safe_limit = max(1, min(int(limit), 1000))
+        rows = self._conn.execute(
+            """
+            SELECT *
+            FROM jobs
+            WHERE status='dead_letter'
+            ORDER BY finished_at DESC, created_at DESC, job_id DESC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        ).fetchall()
+        return list(rows)
+
+    def record_dead_letter_action(self, *, job_id: str, action: str, actor: str = '', note: str = '') -> None:
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO dead_letter_actions(job_id, action, actor, note, created_at)
+                VALUES(?, ?, ?, ?, ?)
+                """,
+                (job_id, action, actor, note, now),
+            )
+
+    def acquire_target_lock(
+        self,
+        *,
+        lock_key: str,
+        job_id: str,
+        worker_id: str,
+        lease_seconds: int,
+    ) -> bool:
+        now = int(time.time())
+        expires = now + max(1, int(lease_seconds))
+        row = self._conn.execute(
+            "SELECT lock_key, job_id, lease_expires_at FROM target_locks WHERE lock_key=?",
+            (lock_key,),
+        ).fetchone()
+        if row is not None:
+            held_job = str(row['job_id'])
+            held_until = int(row['lease_expires_at'] or 0)
+            if held_job != job_id and held_until > now:
+                return False
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO target_locks(lock_key, job_id, worker_id, lease_expires_at, created_at, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?)
+                ON CONFLICT(lock_key) DO UPDATE SET
+                    job_id=excluded.job_id,
+                    worker_id=excluded.worker_id,
+                    lease_expires_at=excluded.lease_expires_at,
+                    updated_at=excluded.updated_at
+                """,
+                (lock_key, job_id, worker_id, expires, now, now),
+            )
+        return True
+
+    def release_target_lock(self, *, lock_key: str, job_id: str) -> None:
+        with self._conn:
+            self._conn.execute(
+                "DELETE FROM target_locks WHERE lock_key=? AND job_id=?",
+                (lock_key, job_id),
+            )
+
+    def list_target_locks(self) -> list[sqlite3.Row]:
+        rows = self._conn.execute(
+            "SELECT * FROM target_locks ORDER BY updated_at DESC, lock_key ASC"
+        ).fetchall()
+        return list(rows)
+
+    def list_jobs(
+        self,
+        *,
+        limit: int = 50,
+        status: str | None = None,
+        task_type: str | None = None,
+        chat_id: int | None = None,
+    ) -> list[sqlite3.Row]:
+        safe_limit = max(1, min(int(limit), 500))
+        clauses: list[str] = []
+        params: list[object] = []
+        if status:
+            clauses.append("status = ?")
+            params.append(str(status))
+        if task_type:
+            clauses.append("task_type = ?")
+            params.append(str(task_type))
+        if chat_id is not None:
+            clauses.append("chat_id = ?")
+            params.append(int(chat_id))
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._conn.execute(
+            f"""
+            SELECT *
+            FROM jobs
+            {where_sql}
+            ORDER BY created_at DESC, job_id DESC
+            LIMIT ?
+            """,
+            (*params, safe_limit),
+        ).fetchall()
+        return list(rows)
+
+    def update_job_status(self, job_id: str, status: str, error: str | None = None) -> None:
+        now = int(time.time())
+        finished_statuses = {"completed", "failed", "cancelled", "dead_letter", "failed_permanent"}
+        with self._conn:
+            if status == "running":
+                self._conn.execute(
+                    """
+                    UPDATE jobs
+                    SET status=?, started_at=CASE WHEN started_at=0 THEN ? ELSE started_at END, last_error=?
+                    WHERE job_id=?
+                    """,
+                    (status, now, error, job_id),
+                )
+            elif status in finished_statuses:
+                self._conn.execute(
+                    """
+                    UPDATE jobs
+                    SET status=?, finished_at=?, last_error=?
+                    WHERE job_id=?
+                    """,
+                    (status, now, error, job_id),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE jobs SET status=?, last_error=? WHERE job_id=?",
+                    (status, error, job_id),
+                )
+
+    def upsert_job_checkpoint(self, *, job_id: str, stage: str, cursor_json: str) -> None:
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO job_checkpoints(job_id, stage, cursor_json, updated_at)
+                VALUES(?, ?, ?, ?)
+                ON CONFLICT(job_id, stage) DO UPDATE SET
+                  cursor_json=excluded.cursor_json,
+                  updated_at=excluded.updated_at
+                """,
+                (job_id, stage, cursor_json, now),
+            )
+
+    def get_job_checkpoint(self, job_id: str, stage: str) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM job_checkpoints WHERE job_id=? AND stage=?",
+            (job_id, stage),
+        ).fetchone()
+
+    def record_job_action(
+        self,
+        *,
+        idempotency_key: str,
+        job_id: str,
+        chat_id: int,
+        message_id: int,
+        action: str,
+        status: str,
+        error: str | None,
+    ) -> None:
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO job_actions(
+                  idempotency_key, job_id, chat_id, message_id, action,
+                  status, attempts, error, updated_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, 1, ?, ?)
+                ON CONFLICT(idempotency_key) DO UPDATE SET
+                  status=excluded.status,
+                  error=excluded.error,
+                  attempts=job_actions.attempts + 1,
+                  updated_at=excluded.updated_at
+                """,
+                (idempotency_key, job_id, int(chat_id), int(message_id), action, status, error, now),
+            )
+
+    def update_job_progress(
+        self,
+        job_id: str,
+        *,
+        scanned: int,
+        matched: int,
+        acted: int,
+        failed: int,
+    ) -> None:
+        with self._conn:
+            self._conn.execute(
+                """
+                UPDATE jobs
+                SET scanned=?, matched=?, acted=?, failed=?
+                WHERE job_id=?
+                """,
+                (int(scanned), int(matched), int(acted), int(failed), job_id),
+            )
+
+    def get_job_action(self, idempotency_key: str) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM job_actions WHERE idempotency_key=?",
+            (idempotency_key,),
+        ).fetchone()
+
+    def list_telegram_controllers(self, *, enabled_only: bool = False) -> list[dict[str, int | str | bool]]:
+        where_sql = "WHERE enabled = 1" if enabled_only else ""
+        rows = self._conn.execute(
+            f"""
+            SELECT user_id, display_name, role, enabled, is_primary, source, created_at, updated_at, last_verified_at
+            FROM telegram_controllers
+            {where_sql}
+            ORDER BY is_primary DESC, enabled DESC, updated_at DESC, user_id ASC
+            """
+        ).fetchall()
+        result: list[dict[str, int | str | bool]] = []
+        for row in rows:
+            result.append(
+                {
+                    "user_id": int(row["user_id"]),
+                    "display_name": str(row["display_name"] or ""),
+                    "role": str(row["role"] or "operator"),
+                    "enabled": int(row["enabled"]) == 1,
+                    "is_primary": int(row["is_primary"]) == 1,
+                    "source": str(row["source"] or ""),
+                    "created_at": int(row["created_at"] or 0),
+                    "updated_at": int(row["updated_at"] or 0),
+                    "last_verified_at": int(row["last_verified_at"] or 0),
+                }
+            )
+        return result
+
+    def upsert_telegram_controller(
+        self,
+        *,
+        user_id: int,
+        display_name: str,
+        enabled: bool,
+        is_primary: bool,
+        source: str,
+        role: str = "operator",
+    ) -> None:
+        now = int(time.time())
+        normalized_role = str(role or "operator").strip().lower() or "operator"
+        if normalized_role not in {"owner", "admin", "operator", "readonly"}:
+            normalized_role = "operator"
+        with self._conn:
+            if is_primary:
+                self._conn.execute("UPDATE telegram_controllers SET is_primary=0")
+            self._conn.execute(
+                """
+                INSERT INTO telegram_controllers(
+                  user_id, display_name, role, enabled, is_primary, source, created_at, updated_at, last_verified_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                  display_name=excluded.display_name,
+                  role=excluded.role,
+                  enabled=excluded.enabled,
+                  is_primary=excluded.is_primary,
+                  source=excluded.source,
+                  updated_at=excluded.updated_at,
+                  last_verified_at=excluded.last_verified_at
+                """,
+                (
+                    int(user_id),
+                    str(display_name or "").strip(),
+                    normalized_role,
+                    int(bool(enabled)),
+                    int(bool(is_primary)),
+                    str(source or "").strip(),
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            self._ensure_primary_telegram_controller_locked()
+
+    def set_primary_telegram_controller(self, *, user_id: int) -> None:
+        now = int(time.time())
+        with self._conn:
+            row = self._conn.execute(
+                "SELECT user_id FROM telegram_controllers WHERE user_id=?",
+                (int(user_id),),
+            ).fetchone()
+            if row is None:
+                raise ValueError("controller_user_not_found")
+            self._conn.execute("UPDATE telegram_controllers SET is_primary=0")
+            self._conn.execute(
+                """
+                UPDATE telegram_controllers
+                SET is_primary=1, enabled=1, updated_at=?
+                WHERE user_id=?
+                """,
+                (now, int(user_id)),
+            )
+
+    def set_telegram_controller_enabled(self, *, user_id: int, enabled: bool) -> None:
+        now = int(time.time())
+        with self._conn:
+            row = self._conn.execute(
+                "SELECT user_id, is_primary, enabled FROM telegram_controllers WHERE user_id=?",
+                (int(user_id),),
+            ).fetchone()
+            if row is None:
+                raise ValueError("controller_user_not_found")
+            target_enabled = int(bool(enabled))
+            if int(row["enabled"]) == target_enabled:
+                return
+            if target_enabled == 0 and int(row["is_primary"]) == 1:
+                enabled_count = int(
+                    self._conn.execute(
+                        "SELECT COUNT(*) AS c FROM telegram_controllers WHERE enabled=1"
+                    ).fetchone()["c"]
+                )
+                if enabled_count <= 1:
+                    raise ValueError("cannot_disable_only_enabled_primary")
+            self._conn.execute(
+                "UPDATE telegram_controllers SET enabled=?, updated_at=? WHERE user_id=?",
+                (target_enabled, now, int(user_id)),
+            )
+            self._ensure_primary_telegram_controller_locked()
+
+    def delete_telegram_controller(self, *, user_id: int) -> None:
+        with self._conn:
+            row = self._conn.execute(
+                "SELECT user_id, is_primary, enabled FROM telegram_controllers WHERE user_id=?",
+                (int(user_id),),
+            ).fetchone()
+            if row is None:
+                raise ValueError("controller_user_not_found")
+            if int(row["is_primary"]) == 1 and int(row["enabled"]) == 1:
+                enabled_count = int(
+                    self._conn.execute(
+                        "SELECT COUNT(*) AS c FROM telegram_controllers WHERE enabled=1"
+                    ).fetchone()["c"]
+                )
+                if enabled_count <= 1:
+                    raise ValueError("cannot_delete_only_enabled_primary")
+            self._conn.execute(
+                "DELETE FROM telegram_controllers WHERE user_id=?",
+                (int(user_id),),
+            )
+            self._ensure_primary_telegram_controller_locked()
+
+    def _ensure_primary_telegram_controller_locked(self) -> None:
+        enabled_rows = self._conn.execute(
+            "SELECT user_id, is_primary FROM telegram_controllers WHERE enabled=1 ORDER BY updated_at DESC, user_id ASC"
+        ).fetchall()
+        if not enabled_rows:
+            return
+        current_primary = next((row for row in enabled_rows if int(row["is_primary"]) == 1), None)
+        if current_primary is not None:
+            return
+        chosen = int(enabled_rows[0]["user_id"])
+        self._conn.execute("UPDATE telegram_controllers SET is_primary=0")
+        self._conn.execute(
+            "UPDATE telegram_controllers SET is_primary=1 WHERE user_id=?",
+            (chosen,),
+        )
 
     def get_chat_stats(self, chat_id: int) -> dict[str, int]:
         total = self._conn.execute(

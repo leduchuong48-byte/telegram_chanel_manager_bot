@@ -4,60 +4,45 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Admin Panel{% endblock %}</title>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap">
     <style>
         :root {
-            --bg-canvas: #f4f5f7;
-            --bg-shell: rgba(255, 255, 255, 0.74);
-            --bg-sidebar: rgba(250, 250, 252, 0.78);
-            --bg-panel: rgba(255, 255, 255, 0.72);
-            --bg-panel-strong: rgba(255, 255, 255, 0.86);
-            --bg-panel-soft: rgba(247, 247, 250, 0.8);
+            --bg-canvas: #eef2f6;
+            --bg-shell: rgba(255, 255, 255, 0.76);
+            --bg-sidebar: rgba(247, 250, 253, 0.84);
+            --bg-panel: rgba(255, 255, 255, 0.78);
+            --bg-panel-strong: rgba(255, 255, 255, 0.9);
+            --bg-panel-soft: rgba(243, 247, 251, 0.9);
             --border-soft: rgba(15, 23, 42, 0.08);
-            --border-strong: rgba(15, 23, 42, 0.14);
+            --border-strong: rgba(15, 23, 42, 0.16);
             --text: #0f172a;
-            --text-soft: #475569;
+            --text-soft: #334155;
             --text-faint: #64748b;
-            --accent: #0071e3;
-            --accent-soft: rgba(0, 113, 227, 0.12);
-            --success: #0a7f52;
-            --danger: #c9342f;
+            --accent: #0a78ea;
+            --accent-soft: rgba(10, 120, 234, 0.14);
+            --danger-soft: rgba(185, 28, 28, 0.12);
+            --success-soft: rgba(4, 120, 87, 0.12);
             --radius-shell: 28px;
-            --radius-panel: 22px;
+            --radius-panel: 20px;
             --radius-control: 14px;
-            --shadow-shell: 0 28px 80px rgba(15, 23, 42, 0.08);
-            --shadow-panel: 0 16px 36px rgba(15, 23, 42, 0.06);
-            --sidebar-width: 252px;
+            --shadow-shell: 0 30px 82px rgba(15, 23, 42, 0.1);
+            --shadow-panel: 0 14px 30px rgba(15, 23, 42, 0.08);
+            --sidebar-width: 258px;
             --content-max: 1720px;
-            --space-1: 6px;
-            --space-2: 10px;
-            --space-3: 14px;
-            --space-4: 18px;
-            --space-5: 24px;
-            --space-6: 32px;
-            --space-7: 40px;
             --fast: 140ms;
             --normal: 180ms;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        html, body {
-            width: 100%;
-            min-height: 100%;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; min-height: 100%; }
 
         body {
             font-family: "Manrope", "Noto Sans SC", sans-serif;
             color: var(--text);
             background:
-                radial-gradient(circle at 10% 0%, rgba(0, 113, 227, 0.08), transparent 32%),
-                radial-gradient(circle at 100% 0%, rgba(15, 23, 42, 0.05), transparent 28%),
-                linear-gradient(180deg, #f7f8fa, #eef1f5);
+                radial-gradient(circle at 12% 0%, rgba(10, 120, 234, 0.1), transparent 34%),
+                radial-gradient(circle at 98% 0%, rgba(15, 23, 42, 0.08), transparent 30%),
+                linear-gradient(180deg, #f4f7fb, #eaf0f6);
             padding: 18px;
         }
 
@@ -72,7 +57,7 @@
             border: 1px solid var(--border-soft);
             border-radius: var(--radius-shell);
             box-shadow: var(--shadow-shell);
-            backdrop-filter: blur(18px);
+            backdrop-filter: blur(16px);
             overflow: hidden;
         }
 
@@ -85,40 +70,29 @@
             gap: 18px;
         }
 
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 6px 8px;
-        }
-
+        .brand { display: flex; align-items: center; gap: 12px; padding: 6px 8px; }
         .brand-icon {
             width: 40px;
             height: 40px;
             border-radius: 14px;
             display: grid;
             place-items: center;
-            background: linear-gradient(180deg, rgba(0, 113, 227, 0.12), rgba(0, 113, 227, 0.06));
+            background: linear-gradient(180deg, rgba(10, 120, 234, 0.16), rgba(10, 120, 234, 0.08));
             color: var(--accent);
             font-size: 18px;
         }
+        .brand-title { font-size: 16px; font-weight: 800; letter-spacing: -0.01em; }
+        .brand-subtitle { font-size: 12px; color: var(--text-faint); margin-top: 2px; }
 
-        .brand-title {
-            font-size: 16px;
-            font-weight: 700;
-            letter-spacing: -0.01em;
-        }
-
-        .brand-subtitle {
-            font-size: 12px;
+        .nav { display: flex; flex-direction: column; gap: 8px; }
+        .nav-group { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+        .nav-group-title {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
             color: var(--text-faint);
-            margin-top: 2px;
-        }
-
-        .nav {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
+            text-transform: uppercase;
+            padding: 4px 12px;
         }
 
         .nav-item {
@@ -126,11 +100,11 @@
             align-items: center;
             gap: 12px;
             padding: 12px 14px;
-            border-radius: 16px;
+            border-radius: 15px;
             color: var(--text);
             text-decoration: none;
             font-size: 14px;
-            font-weight: 600;
+            font-weight: 650;
             border: 1px solid transparent;
             transition: background var(--normal) ease, border-color var(--normal) ease, transform var(--fast) ease;
         }
@@ -143,13 +117,11 @@
 
         .nav-item.active {
             background: var(--accent-soft);
-            border-color: rgba(0, 113, 227, 0.18);
+            border-color: rgba(10, 120, 234, 0.24);
             color: var(--accent);
         }
 
-        .nav-item span {
-            font-size: 16px;
-        }
+        .nav-item span { font-size: 16px; }
 
         .sidebar-footer {
             margin-top: auto;
@@ -159,157 +131,121 @@
             border-top: 1px solid var(--border-soft);
         }
 
-        .main {
-            display: flex;
-            flex-direction: column;
-            min-width: 0;
-            min-height: 0;
-        }
+        .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
         .topbar {
-            padding: 22px 28px 18px;
+            padding: 22px 28px 16px;
             display: flex;
             align-items: flex-start;
             justify-content: space-between;
             gap: 18px;
             border-bottom: 1px solid var(--border-soft);
-            background: rgba(255, 255, 255, 0.62);
+            background: rgba(255, 255, 255, 0.68);
             backdrop-filter: blur(10px);
         }
 
-        .page-title {
-            font-size: 22px;
-            font-weight: 700;
-            letter-spacing: -0.02em;
-        }
-
-        .page-subtitle {
-            font-size: 13px;
-            color: var(--text-faint);
-            margin-top: 6px;
-            max-width: 72ch;
-        }
-
-        .top-actions {
-            display: flex;
-            gap: 10px;
+        .kicker {
+            display: inline-flex;
             align-items: center;
-            flex-wrap: wrap;
+            gap: 8px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--border-soft);
+            background: rgba(255, 255, 255, 0.78);
+            color: var(--text-faint);
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
         }
+
+        .page-title { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; margin-top: 8px; }
+        .page-subtitle { font-size: 13px; color: var(--text-faint); margin-top: 6px; max-width: 72ch; }
+
+        .top-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
         .btn {
             padding: 10px 16px;
             border-radius: 999px;
             border: 1px solid var(--border-soft);
-            background: rgba(255, 255, 255, 0.82);
+            background: rgba(255, 255, 255, 0.88);
             color: var(--text);
             font-size: 13px;
-            font-weight: 600;
+            font-weight: 650;
             cursor: pointer;
             text-decoration: none;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 8px;
-            transition: transform var(--fast) ease, border-color var(--normal) ease, background var(--normal) ease, box-shadow var(--normal) ease;
+            transition: transform var(--fast) ease, border-color var(--normal) ease, background var(--normal) ease;
             box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
         }
 
         .btn:hover {
             transform: translateY(-1px);
             border-color: var(--border-strong);
-            background: rgba(255, 255, 255, 0.96);
+            background: rgba(255, 255, 255, 0.98);
         }
 
         .btn-primary {
-            background: linear-gradient(180deg, #1485ff, #0071e3);
+            background: linear-gradient(180deg, #1a89ff, #0a78ea);
             color: #fff;
             border-color: transparent;
-            box-shadow: 0 10px 24px rgba(0, 113, 227, 0.18);
+            box-shadow: 0 10px 24px rgba(10, 120, 234, 0.2);
         }
 
-        .btn-primary:hover {
-            box-shadow: 0 14px 30px rgba(0, 113, 227, 0.24);
+        .btn-primary:hover { box-shadow: 0 14px 30px rgba(10, 120, 234, 0.28); }
+
+        .insight-strip {
+            margin: 14px 28px 0;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
         }
 
-        .content {
-            flex: 1;
-            padding: 26px 28px 32px;
-            overflow-y: auto;
-            min-height: 0;
-        }
-
-        .content::-webkit-scrollbar {
-            width: 9px;
-        }
-
-        .content::-webkit-scrollbar-thumb {
-            background: rgba(15, 23, 42, 0.14);
+        .insight-pill {
+            border: 1px solid var(--border-soft);
             border-radius: 999px;
+            padding: 6px 12px;
+            font-size: 12px;
+            color: var(--text-soft);
+            background: rgba(255, 255, 255, 0.72);
         }
 
-        .page-layout {
-            width: 100%;
-            min-height: 0;
-        }
+        .content { flex: 1; padding: 24px 28px 32px; overflow-y: auto; min-height: 0; }
+        .content::-webkit-scrollbar { width: 9px; }
+        .content::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, 0.14); border-radius: 999px; }
 
-        .page-layout.page-tool {
-            max-width: 1040px;
-        }
-
-        .page-layout.page-editor {
-            max-width: 100%;
-        }
+        .page-layout { width: 100%; min-height: 0; }
+        .page-layout.page-tool { max-width: 1080px; }
+        .page-layout.page-editor { max-width: 100%; }
 
         .surface {
             background: var(--bg-panel);
             border: 1px solid var(--border-soft);
             border-radius: var(--radius-panel);
             box-shadow: var(--shadow-panel);
-            backdrop-filter: blur(16px);
+            backdrop-filter: blur(12px);
         }
-
-        .surface-strong {
-            background: var(--bg-panel-strong);
-        }
-
-        .surface-soft {
-            background: var(--bg-panel-soft);
-        }
+        .surface-strong { background: var(--bg-panel-strong); }
+        .surface-soft { background: var(--bg-panel-soft); }
 
         .field,
         .field-inline,
         input,
         select,
-        textarea {
-            accent-color: var(--accent);
-        }
+        textarea { accent-color: var(--accent); }
 
         @media (max-width: 1080px) {
-            body {
-                padding: 12px;
-            }
-
-            .app-frame {
-                min-height: calc(100vh - 24px);
-                grid-template-columns: 1fr;
-            }
-
-            .sidebar {
-                flex-direction: row;
-                flex-wrap: wrap;
-                align-items: center;
-                justify-content: space-between;
-            }
-
-            .nav {
-                flex-direction: row;
-                flex-wrap: wrap;
-            }
-
-            .sidebar-footer {
-                width: 100%;
-            }
+            body { padding: 12px; }
+            .app-frame { min-height: calc(100vh - 24px); grid-template-columns: 1fr; }
+            .sidebar { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+            .nav { flex-direction: row; flex-wrap: wrap; }
+            .sidebar-footer { width: 100%; }
+            .topbar { padding: 18px 18px 14px; }
+            .insight-strip { margin: 10px 18px 0; }
+            .content { padding: 18px; }
         }
     </style>
     {% block extra_head %}{% endblock %}
@@ -325,38 +261,89 @@
                 </div>
             </div>
             <nav class="nav">
-                <a class="nav-item {% if active_page == 'dashboard' %}active{% endif %}" href="/">
-                    <span>📊</span> 概览
-                </a>
-                <a class="nav-item {% if active_page == 'tags' %}active{% endif %}" href="/tags">
-                    <span>🏷️</span> 标签管理
-                </a>
-                <a class="nav-item {% if active_page == 'cleaner' %}active{% endif %}" href="/cleaner">
-                    <span>🧹</span> 消息清洗
-                </a>
-                <a class="nav-item {% if active_page == 'filters' %}active{% endif %}" href="/filters">
-                    <span>🧱</span> 文本过滤
-                </a>
-                <a class="nav-item {% if active_page == 'media_filter' %}active{% endif %}" href="/media_filter">
-                    <span>🎞️</span> 媒体筛选
-                </a>
-                <a class="nav-item {% if active_page == 'tools' %}active{% endif %}" href="/tools">
-                    <span>🧰</span> 维护工具
-                </a>
-                <a class="nav-item {% if active_page == 'account' %}active{% endif %}" href="/account">
-                    <span>👤</span> 账号管理
-                </a>
+                <div class="nav-group">
+                    <div class="nav-group-title">总览</div>
+                    <a class="nav-item {% if active_page == 'dashboard' %}active{% endif %}" href="/">
+                        <span>📊</span> 控制台总览
+                    </a>
+                </div>
+
+                <div class="nav-group">
+                    <div class="nav-group-title">执行与任务</div>
+                    <a class="nav-item {% if active_page == 'task_center' %}active{% endif %}" href="/task_center">
+                        <span>📋</span> 任务日志
+                    </a>
+                    <a class="nav-item {% if active_page == 'cleaner' %}active{% endif %}" href="/cleaner">
+                        <span>🧹</span> 消息清洗
+                    </a>
+                    <a class="nav-item {% if active_page == 'tags' %}active{% endif %}" href="/tags">
+                        <span>🏷️</span> 标签维护
+                    </a>
+                </div>
+
+                <div class="nav-group">
+                    <div class="nav-group-title">Telegram 运行面</div>
+                    <a class="nav-item {% if active_page == 'telegram_controllers' %}active{% endif %}" href="/telegram_controllers">
+                        <span>🛡️</span> Telegram 控制用户
+                    </a>
+                    <a class="nav-item {% if active_page == 'session' %}active{% endif %}" href="/session">
+                        <span>📱</span> 执行会话
+                    </a>
+                    <a class="nav-item {% if active_page == 'chat_visibility' %}active{% endif %}" href="/chat_visibility">
+                        <span>👁️</span> 可见性诊断
+                    </a>
+                    <a class="nav-item {% if active_page == 'forwarding' %}active{% endif %}" href="/forwarding">
+                        <span>↪️</span> 转发规则
+                    </a>
+                </div>
+
+                <div class="nav-group">
+                    <div class="nav-group-title">系统配置</div>
+                    <a class="nav-item {% if active_page == 'bot_settings' %}active{% endif %}" href="/bot_settings">
+                        <span>⚙️</span> Bot 设置
+                    </a>
+                    <a class="nav-item {% if active_page == 'filters' %}active{% endif %}" href="/filters">
+                        <span>🧱</span> 文本过滤
+                    </a>
+                    <a class="nav-item {% if active_page == 'media_filter' %}active{% endif %}" href="/media_filter">
+                        <span>🎞️</span> 媒体筛选
+                    </a>
+                    <a class="nav-item {% if active_page == 'tools' %}active{% endif %}" href="/tools">
+                        <span>🧰</span> 维护工具
+                    </a>
+                    <a class="nav-item {% if active_page == 'account' or active_page == 'users' %}active{% endif %}" href="/account">
+                        <span>👤</span> Web 管理员
+                    </a>
+                    <a class="nav-item {% if active_page == 'config_editor' %}active{% endif %}" href="/config_editor">
+                        <span>📝</span> 配置编辑器
+                    </a>
+                </div>
+
+                <div class="nav-group">
+                    <div class="nav-group-title">诊断与审计</div>
+                    <a class="nav-item {% if active_page == 'review_queue' %}active{% endif %}" href="/review_queue">
+                        <span>🧭</span> 复核队列
+                    </a>
+                    <a class="nav-item {% if active_page == 'dead_letters' %}active{% endif %}" href="/dead_letters">
+                        <span>📮</span> 死信队列
+                    </a>
+                    <a class="nav-item {% if active_page == 'logs' %}active{% endif %}" href="/logs">
+                        <span>📡</span> 系统日志
+                    </a>
+                </div>
             </nav>
-            <div class="sidebar-footer">偏 Apple 风格的高效控制台。优先稳定、清晰、快速反馈。</div>
+            <div class="sidebar-footer">运营态势控制台：以状态为先、以诊断为核心、以动作为落点。</div>
         </aside>
         <main class="main">
             <header class="topbar">
                 <div>
+                    <div class="kicker">{% block page_kicker %}运营态势控制台{% endblock %}</div>
                     <div class="page-title">{% block page_title %}管理台{% endblock %}</div>
                     <div class="page-subtitle">{% block page_subtitle %}统一管理 Bot 相关配置与工具。{% endblock %}</div>
                 </div>
                 <div class="top-actions">{% block top_actions %}{% endblock %}</div>
             </header>
+            {% block page_insights %}{% endblock %}
             <div class="content">
                 <div class="page-layout {% block page_mode %}page-tool{% endblock %}">
                     {% block content %}{% endblock %}

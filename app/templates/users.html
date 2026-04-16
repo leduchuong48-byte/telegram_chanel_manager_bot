@@ -1,23 +1,33 @@
 {% extends "base.html" %}
 
+{% block page_kicker %}System Settings{% endblock %}
 {% block page_title %}账号管理{% endblock %}
-{% block page_subtitle %}管理 Web Admin 管理员账号，新增或删除账号时会同步写入配置。{% endblock %}
+{% block page_subtitle %}管理 Web Admin 管理员账号，不等同于 Telegram 控制用户。新增或删除账号时会同步写入配置。{% endblock %}
 {% block page_mode %}page-tool{% endblock %}
+
+{% block page_insights %}
+<div class="insight-strip">
+    <div class="insight-pill">配置边界：这里只管理 Web 登录账号</div>
+    <div class="insight-pill">账号变更后建议动作：核验登录并同步审计日志</div>
+    <a class="insight-pill" href="/task_center">进入任务中心</a>
+</div>
+{% endblock %}
 
 {% block content %}
 <style>
     .users-page { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; }
     .surface { background: var(--bg-panel); border: 1px solid var(--border-soft); border-radius: var(--radius-panel); box-shadow: var(--shadow-panel); padding: 22px; display: flex; flex-direction: column; gap: 16px; }
     .surface-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
-    .surface-title { font-size: 15px; font-weight: 700; }
+    .surface-title { font-size: 15px; font-weight: 800; }
     .surface-sub, .hint, .muted { font-size: 12px; color: var(--text-faint); }
     .user-list { display: flex; flex-direction: column; gap: 10px; }
-    .user-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-radius: 16px; border: 1px solid var(--border-soft); background: rgba(255,255,255,0.62); }
+    .user-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-radius: 16px; border: 1px solid var(--border-soft); background: rgba(255,255,255,0.72); }
     .user-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .pill { font-size: 11px; padding: 4px 8px; border-radius: 999px; background: rgba(0,113,227,0.12); color: var(--accent); }
+    .pill { font-size: 11px; padding: 4px 8px; border-radius: 999px; background: rgba(10,120,234,0.12); color: var(--accent); }
     .field-stack { display: flex; flex-direction: column; gap: 8px; }
     .field-label { font-size: 12px; color: var(--text-faint); }
-    .field { width: 100%; border: 1px solid var(--border-soft); background: rgba(255,255,255,0.84); color: var(--text); border-radius: var(--radius-control); padding: 11px 13px; font-size: 13px; outline: none; }
+    .field { width: 100%; border: 1px solid var(--border-soft); background: rgba(255,255,255,0.9); color: var(--text); border-radius: var(--radius-control); padding: 11px 13px; font-size: 13px; outline: none; }
+    .warn-box { border: 1px solid var(--border-soft); border-radius: 14px; background: rgba(243,247,251,0.86); padding: 10px; font-size: 12px; color: var(--text-soft); }
     .toast { position: fixed; right: 24px; bottom: 24px; padding: 12px 16px; border-radius: 16px; background: rgba(15,23,42,0.92); color: #fff; font-size: 13px; box-shadow: 0 18px 36px rgba(15,23,42,0.18); opacity: 0; transform: translateY(8px); transition: all var(--normal) ease; pointer-events: none; }
     .toast.show { opacity: 1; transform: translateY(0); }
     .btn-danger { color: var(--danger); border-color: rgba(201,52,47,0.18); background: rgba(201,52,47,0.06); }
@@ -50,7 +60,8 @@
             <input class="field" id="passwordInput" type="password" placeholder="请输入密码">
         </div>
         <button class="btn btn-primary" id="addUserBtn">添加管理员</button>
-        <div class="hint">建议为每个管理员分配独立账号，避免共享默认账户。</div>
+        <div class="warn-box">配置边界：该页面仅影响 Web 登录账号，不会直接改变 Telegram 控制身份。</div>
+        <div class="hint">账号变更后建议动作：重新登录验证并查看系统日志。</div>
     </aside>
 </div>
 

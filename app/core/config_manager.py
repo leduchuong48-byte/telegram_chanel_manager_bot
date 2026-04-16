@@ -90,6 +90,9 @@ class ConfigManager:
             "database": {
                 "path": "./data/bot.db",
             },
+            "pipeline": {
+                "worker_count": 1,
+            },
         }
 
     def get_config(self) -> dict[str, Any]:

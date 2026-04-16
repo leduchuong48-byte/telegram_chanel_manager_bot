@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+import json
+
+from app.core.runtime_settings import load_runtime_settings
 
 
 _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+logger = logging.getLogger(__name__)
 
 
 def _strip_quotes(value: str) -> str:
@@ -89,18 +94,54 @@ class Config:
 
 def load_config() -> Config:
     _load_dotenv()
-    bot_token = os.getenv("TG_BOT_TOKEN", "").strip() or None
+
+    config_json_path = Path('config.json')
+    raw_config: dict[str, object] = {}
+    if config_json_path.exists():
+        try:
+            raw_config = json.loads(config_json_path.read_text(encoding='utf-8'))
+        except Exception:
+            raw_config = {}
+    settings = load_runtime_settings(raw_config if isinstance(raw_config, dict) else {})
+
+    if isinstance(raw_config, dict):
+        bot_section = raw_config.get('bot', {})
+        if isinstance(bot_section, dict):
+            conflicts: list[tuple[str, object, object]] = []
+            env_checks = [
+                ('DRY_RUN', os.getenv('DRY_RUN'), bot_section.get('dry_run')),
+                ('DELETE_DUPLICATES', os.getenv('DELETE_DUPLICATES'), bot_section.get('delete_duplicates')),
+                ('TG_API_ID', os.getenv('TG_API_ID'), bot_section.get('api_id')),
+                ('TG_API_HASH', os.getenv('TG_API_HASH'), bot_section.get('api_hash')),
+                ('TG_BOT_TOKEN', os.getenv('TG_BOT_TOKEN'), bot_section.get('bot_token')),
+            ]
+            for env_name, env_value, config_value in env_checks:
+                if env_value is None:
+                    continue
+                if config_value is None:
+                    continue
+                if str(env_value).strip() != str(config_value).strip():
+                    conflicts.append((env_name, env_value, config_value))
+            for env_name, env_value, config_value in conflicts:
+                logger.warning(
+                    'deprecated_env_override_ignored env=%s env_value=%s config_value=%s',
+                    env_name,
+                    env_value,
+                    config_value,
+                )
 
     db_path = Path(os.getenv("DB_PATH", "./data/bot.db")).expanduser()
+    if isinstance(raw_config, dict):
+        database = raw_config.get('database', {})
+        if isinstance(database, dict) and str(database.get('path') or '').strip():
+            db_path = Path(str(database.get('path')).strip()).expanduser()
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     keep_policy = os.getenv("KEEP_POLICY", "oldest").strip().lower()
     if keep_policy not in {"oldest"}:
         raise RuntimeError(f"不支持的 KEEP_POLICY: {keep_policy}")
 
-    tg_api_id_raw = os.getenv("TG_API_ID", "").strip()
-    tg_api_id = int(tg_api_id_raw) if tg_api_id_raw else None
-    tg_session = os.getenv("TG_SESSION", "").strip() or "./sessions/user"
+    tg_session = os.getenv("TG_SESSION", "").strip() or settings.web_tg_session or "./sessions/user"
     try:
         session_path = Path(tg_session).expanduser()
         session_path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,17 +174,17 @@ def load_config() -> Config:
         tag_count = 10
 
     return Config(
-        bot_token=bot_token,
+        bot_token=settings.bot_token or None,
         db_path=db_path,
         allow_chat_ids=_parse_chat_ids(os.getenv("ALLOW_CHAT_IDS")),
-        delete_duplicates=_parse_bool(os.getenv("DELETE_DUPLICATES"), default=False),
-        dry_run=_parse_bool(os.getenv("DRY_RUN"), default=True),
+        delete_duplicates=settings.delete_duplicates,
+        dry_run=settings.dry_run,
         keep_policy=keep_policy,
         retry_failed_deletes=_parse_bool(os.getenv("RETRY_FAILED_DELETES"), default=False),
-        log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
+        log_level=str(raw_config.get('bot', {}).get('log_level', os.getenv('LOG_LEVEL', 'INFO'))).strip().upper() if isinstance(raw_config, dict) else os.getenv('LOG_LEVEL', 'INFO').strip().upper(),
         tag_build_limit=tag_build_limit,
         tag_count=tag_count,
-        tg_api_id=tg_api_id,
-        tg_api_hash=os.getenv("TG_API_HASH", "").strip() or None,
+        tg_api_id=settings.api_id or None,
+        tg_api_hash=settings.api_hash or None,
         tg_session=tg_session,
     )

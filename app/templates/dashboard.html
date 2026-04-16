@@ -1,86 +1,271 @@
 {% extends "base.html" %}
 
+{% block page_kicker %}Overview{% endblock %}
+{% block page_title %}控制台总览{% endblock %}
+{% block page_subtitle %}优先回答四件事：系统是否可执行、谁在执行、哪里有风险、你下一步该去哪里。{% endblock %}
+
+{% block page_insights %}
+<div class="insight-strip">
+    <div class="insight-pill" id="summaryReadiness">可执行性：检查中</div>
+    <div class="insight-pill" id="summaryIdentity">执行身份：检查中</div>
+    <div class="insight-pill" id="summaryRisk">风险：检查中</div>
+</div>
+{% endblock %}
+
 {% block content %}
 <style>
-    .grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 18px;
-    }
+    .overview-layout { display: grid; gap: 14px; }
+    .priority-panel { padding: 16px; display: grid; gap: 10px; }
+    .priority-title { font-size: 13px; color: var(--text-faint); font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; }
+    .priority-value { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; }
+    .priority-muted { font-size: 13px; color: var(--text-soft); }
+    .priority-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+    .card { border-radius: var(--radius-panel); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+    .title { font-size: 14px; font-weight: 700; }
+    .value { font-size: 24px; font-weight: 800; }
+    .muted { font-size: 12px; color: var(--text-faint); }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .pill { font-size: 11px; border-radius: 999px; padding: 3px 8px; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
 
-    .card {
-        background: rgba(12, 20, 30, 0.72);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 20px;
-        padding: 20px;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.4);
-        min-height: 160px;
-    }
+    .axis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .axis-card { padding: 16px; display: grid; gap: 8px; }
+    .axis-card h3 { font-size: 15px; font-weight: 800; }
+    .axis-value { font-size: 14px; color: var(--text-soft); }
+    .axis-value strong { color: var(--text); }
+    .axis-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
-    .card-title {
-        font-size: 16px;
-        font-weight: 600;
-    }
-
-    .card-desc {
-        font-size: 13px;
-        color: var(--muted);
-        line-height: 1.6;
-    }
-
-    .card-actions {
-        margin-top: auto;
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-    }
+    @media (max-width: 960px) { .axis-grid { grid-template-columns: 1fr; } }
 </style>
 
-<div class="grid">
-    <div class="card">
-        <div class="card-title">Bot 设置</div>
-        <div class="card-desc">集中维护 TG_BOT_TOKEN、API ID / HASH 与目标群组。</div>
-        <div class="card-actions">
-            <a class="btn btn-primary" href="/bot_settings">进入设置</a>
+<div class="overview-layout">
+    <section class="surface priority-panel">
+        <div class="priority-title">当前操作主轴</div>
+        <div class="priority-value" id="operationAxis">正在聚合实时状态...</div>
+        <div class="priority-muted" id="operationAxisReason">系统将基于执行会话、任务失败与运行模式生成优先动作。</div>
+        <div class="priority-actions">
+            <a class="btn btn-primary" href="/task_center">进入任务中心</a>
+            <a class="btn" href="/chat_visibility">可见性诊断</a>
+            <a class="btn" href="/session">执行身份中心</a>
         </div>
+    </section>
+
+    <div class="axis-grid">
+        <section class="surface axis-card">
+            <h3>建议下一步</h3>
+            <div class="axis-value" id="nextAction">检查中...</div>
+            <div class="axis-actions">
+                <a class="btn" id="nextActionPrimary" href="/task_center">查看任务日志</a>
+                <a class="btn" id="nextActionSecondary" href="/logs">系统日志</a>
+            </div>
+        </section>
+        <section class="surface axis-card">
+            <h3>当前风险概览</h3>
+            <div class="axis-value" id="riskSummary"><strong>读取中</strong>：正在同步近期失败、会话状态和暂停任务。</div>
+            <div class="axis-actions">
+                <a class="btn" href="/task_center">失败任务</a>
+                <a class="btn" href="/logs">日志流</a>
+            </div>
+        </section>
     </div>
-    <div class="card">
-        <div class="card-title">配置编辑器</div>
-        <div class="card-desc">在线修改 config.json，支持热重载与备份。</div>
-        <div class="card-actions">
-            <a class="btn" href="/config_editor">打开 JSON 编辑器</a>
-        </div>
-    </div>
-    <div class="card">
-        <div class="card-title">标签管理</div>
-        <div class="card-desc">维护标签组、别名与标签库（功能预留）。</div>
-        <div class="card-actions">
-            <a class="btn" href="/tags">进入模块</a>
-        </div>
-    </div>
-    <div class="card">
-        <div class="card-title">消息筛选</div>
-        <div class="card-desc">配置屏蔽词与过滤策略（功能预留）。</div>
-        <div class="card-actions">
-            <a class="btn" href="/filters">进入模块</a>
-        </div>
-    </div>
-    <div class="card">
-        <div class="card-title">系统日志</div>
-        <div class="card-desc">实时查看 Bot 与调度器运行状态。</div>
-        <div class="card-actions">
-            <a class="btn" href="/logs">打开终端</a>
-        </div>
-    </div>
-    <div class="card">
-        <div class="card-title">健康检查</div>
-        <div class="card-desc">快速确认 Web Admin 状态。</div>
-        <div class="card-actions">
-            <a class="btn" href="/health">访问 /health</a>
-        </div>
+
+    <div class="overview-grid">
+        <section class="surface card">
+            <div class="title">系统可执行性</div>
+            <div class="value" id="systemReadiness">检查中...</div>
+            <div class="muted" id="systemReadinessReason">正在聚合任务与会话状态</div>
+            <div class="actions"><a class="btn" href="/task_center">查看任务日志</a></div>
+        </section>
+
+        <section class="surface card">
+            <div class="title">执行身份</div>
+            <div class="value" id="sessionIdentity">未连接</div>
+            <div class="muted" id="sessionIdentityDetail">历史任务依赖 Telethon 执行会话</div>
+            <div class="actions"><a class="btn" href="/session">管理会话</a></div>
+        </section>
+
+        <section class="surface card">
+            <div class="title">控制权限</div>
+            <div class="row"><span class="muted">owner</span><span class="pill" id="ownerCount">0</span></div>
+            <div class="row"><span class="muted">admin</span><span class="pill" id="adminCount">0</span></div>
+            <div class="muted">Telegram 控制用户（非 Web 登录账号）</div>
+            <div class="actions"><a class="btn" href="/telegram_controllers">查看控制用户</a></div>
+        </section>
+
+        <section class="surface card">
+            <div class="title">运行模式</div>
+            <div class="row"><span class="muted">dry-run</span><span class="pill" id="modeDryRun">-</span></div>
+            <div class="row"><span class="muted">delete</span><span class="pill" id="modeDelete">-</span></div>
+            <div class="muted">模式影响清洗/历史任务行为</div>
+            <div class="actions"><a class="btn" href="/bot_settings">查看设置</a></div>
+        </section>
+
+        <section class="surface card">
+            <div class="title">任务概览</div>
+            <div class="row"><span class="muted">运行中</span><span class="pill" id="runningJobs">0</span></div>
+            <div class="row"><span class="muted">暂停群组</span><span class="pill" id="pausedChats">0</span></div>
+            <div class="row"><span class="muted">近期失败</span><span class="pill" id="failedJobs">0</span></div>
+            <div class="actions"><a class="btn" href="/task_center">进入任务中心</a></div>
+        </section>
+
+        <section class="surface card">
+            <div class="title">最近异常</div>
+            <div class="muted" id="latestFailure">暂无失败任务</div>
+            <div class="actions"><a class="btn" href="/task_center">查看失败详情</a><a class="btn" href="/logs">系统日志</a></div>
+        </section>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(async function () {
+    const token = localStorage.getItem('token');
+    if (!token) { window.location.href = '/login'; return; }
+    const headers = { Authorization: `Bearer ${token}` };
+
+    const state = {
+        connected: false,
+        failedJobs: 0,
+        latestFailure: '暂无失败任务',
+    };
+
+    async function safeJson(resp) {
+        try { return await resp.json(); } catch (_) { return {}; }
+    }
+
+    function updateAxis() {
+        let axis = '系统处于稳定观察态';
+        let reason = '当前未发现阻断条件，建议按计划巡检任务与日志。';
+        let nextAction = '继续观察任务队列与日志，确认无新失败。';
+        let nextPrimaryHref = '/task_center';
+        let nextPrimaryText = '查看任务日志';
+        let nextSecondaryHref = '/logs';
+        let nextSecondaryText = '系统日志';
+        let riskSummary = '低风险：暂无显著阻断项。';
+
+        if (!state.connected) {
+            axis = '执行身份未就绪';
+            reason = '执行会话未连接，历史任务会进入受限状态。';
+            nextAction = '先进入执行身份中心重新登录 Telethon 会话。';
+            nextPrimaryHref = '/session';
+            nextPrimaryText = '进入执行身份中心';
+            nextSecondaryHref = '/chat_visibility';
+            nextSecondaryText = '查看可见性诊断';
+            riskSummary = '高风险：执行会话离线，任务可能持续失败。';
+        } else if (state.failedJobs > 0) {
+            axis = '失败任务优先排查';
+            reason = '检测到近期失败任务，需要先完成失败归因。';
+            nextAction = '进入任务中心按“状态 -> 证据 -> 动作”处理失败项。';
+            nextPrimaryHref = '/task_center';
+            nextPrimaryText = '处理失败任务';
+            nextSecondaryHref = '/chat_visibility';
+            nextSecondaryText = '定位可见性根因';
+            riskSummary = `中风险：近期失败任务 ${state.failedJobs} 条，最近异常 ${state.latestFailure}`;
+        }
+
+        document.getElementById('operationAxis').textContent = axis;
+        document.getElementById('operationAxisReason').textContent = reason;
+        document.getElementById('nextAction').textContent = nextAction;
+        document.getElementById('riskSummary').innerHTML = `<strong>${riskSummary.split('：')[0]}</strong>${riskSummary.includes('：') ? `：${riskSummary.split('：').slice(1).join('：')}` : ''}`;
+
+        const primary = document.getElementById('nextActionPrimary');
+        const secondary = document.getElementById('nextActionSecondary');
+        primary.href = nextPrimaryHref;
+        primary.textContent = nextPrimaryText;
+        secondary.href = nextSecondaryHref;
+        secondary.textContent = nextSecondaryText;
+
+        document.getElementById('summaryReadiness').textContent = `可执行性：${state.connected ? '会话在线' : '会话未就绪'}`;
+        document.getElementById('summaryIdentity').textContent = `执行身份：${state.connected ? '已连接' : '未连接'}`;
+        document.getElementById('summaryRisk').textContent = `风险：${state.failedJobs > 0 ? '存在失败任务' : '低'}`;
+    }
+
+    async function loadMonitoring() {
+        const resp = await fetch('/api/cleaner/monitoring', { headers });
+        if (resp.status === 401) { window.location.href = '/login'; return; }
+        if (!resp.ok) return;
+        const data = await safeJson(resp);
+        state.failedJobs = Number(data.recent_failed_jobs ?? 0);
+        document.getElementById('runningJobs').textContent = String(data.running_jobs ?? 0);
+        document.getElementById('pausedChats').textContent = String(data.paused_chats ?? 0);
+        document.getElementById('failedJobs').textContent = String(data.recent_failed_jobs ?? 0);
+    }
+
+    async function loadJobs() {
+        const resp = await fetch('/api/cleaner/jobs?limit=20', { headers });
+        if (!resp.ok) return;
+        const data = await safeJson(resp);
+        const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+        const failed = jobs.find((j) => j.status === 'failed');
+        if (failed) {
+            const msg = failed.last_error ? `${failed.task_type}: ${failed.last_error}` : `${failed.task_type}: 任务失败`;
+            state.latestFailure = msg;
+            document.getElementById('latestFailure').textContent = msg;
+        }
+    }
+
+    async function loadSession() {
+        const resp = await fetch('/api/session/status', { headers });
+        if (!resp.ok) return;
+        const data = await safeJson(resp);
+        state.connected = Boolean(data.connected);
+        if (data.connected) {
+            const identity = data.username ? `@${data.username}` : String(data.user_id || '已连接');
+            document.getElementById('sessionIdentity').textContent = identity;
+            document.getElementById('sessionIdentityDetail').textContent = data.phone ? `手机号 ${data.phone}` : '执行会话在线';
+        } else {
+            document.getElementById('sessionIdentity').textContent = '未连接';
+            document.getElementById('sessionIdentityDetail').textContent = '历史任务会受影响';
+        }
+    }
+
+    async function loadControllers() {
+        const resp = await fetch('/api/telegram-controllers', { headers });
+        if (!resp.ok) return;
+        const data = await safeJson(resp);
+        const rows = Array.isArray(data.data) ? data.data : [];
+        const owners = rows.filter((r) => (r.role || '').toLowerCase() === 'owner').length;
+        const admins = rows.filter((r) => (r.role || '').toLowerCase() === 'admin').length;
+        document.getElementById('ownerCount').textContent = String(owners);
+        document.getElementById('adminCount').textContent = String(admins);
+    }
+
+    async function loadMode() {
+        const resp = await fetch('/api/chat_effective_state/chats?limit=1', { headers });
+        if (!resp.ok) return;
+        const data = await safeJson(resp);
+        const first = Array.isArray(data.items) && data.items.length ? data.items[0] : null;
+        if (!first) return;
+        const dry = first.runtime ? first.runtime.dry_run_legacy : null;
+        const mode = first.enforcement ? first.enforcement.mode : '';
+        document.getElementById('modeDryRun').textContent = dry === true ? 'ON' : 'OFF';
+        document.getElementById('modeDelete').textContent = mode === 'delete' ? 'ON' : 'OFF';
+    }
+
+    async function loadReadiness() {
+        const [mResp, sResp] = await Promise.all([
+            fetch('/api/cleaner/monitoring', { headers }),
+            fetch('/api/session/status', { headers }),
+        ]);
+        const m = await safeJson(mResp);
+        const s = await safeJson(sResp);
+        let status = '可执行';
+        let reason = '系统可正常发起和追踪任务';
+        if (!s.connected) {
+            status = '受限';
+            reason = '执行会话未连接：历史任务可能失败';
+        } else if ((m.recent_failed_jobs || 0) > 0) {
+            status = '降级';
+            reason = '检测到近期失败任务，请在任务中心排查';
+        }
+        document.getElementById('systemReadiness').textContent = status;
+        document.getElementById('systemReadinessReason').textContent = reason;
+    }
+
+    await Promise.all([loadReadiness(), loadMonitoring(), loadJobs(), loadSession(), loadControllers(), loadMode()]);
+    updateAxis();
+})();
+</script>
 {% endblock %}

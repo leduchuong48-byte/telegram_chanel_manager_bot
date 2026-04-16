@@ -1,16 +1,20 @@
 {% extends "base.html" %}
 
+{% block page_kicker %}Operations Tool{% endblock %}
 {% block page_title %}消息清洗{% endblock %}
-{% block page_subtitle %}选择目标群组、设定范围，再执行一次性或类型定向的清理任务。{% endblock %}
+{% block page_subtitle %}选择目标群组、设定范围并提交任务，再到任务中心持续跟踪执行结果。{% endblock %}
 {% block page_mode %}page-tool{% endblock %}
+
+{% block page_insights %}
+<div class="insight-strip">
+    <div class="insight-pill">状态 -> 证据 -> 动作</div>
+    <div class="insight-pill">提交任务后优先在任务中心查看失败分类</div>
+</div>
+{% endblock %}
 
 {% block content %}
 <style>
-    .tool-page {
-        display: flex;
-        flex-direction: column;
-        gap: 18px;
-    }
+    .tool-page { display: flex; flex-direction: column; gap: 18px; }
 
     .tool-surface {
         background: var(--bg-panel);
@@ -23,38 +27,30 @@
         gap: 16px;
     }
 
-    .surface-head {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 14px;
-    }
+    .surface-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+    .surface-title { font-size: 15px; font-weight: 800; }
+    .surface-sub, .hint, .muted { font-size: 12px; color: var(--text-faint); }
 
-    .surface-title {
-        font-size: 15px;
-        font-weight: 700;
-    }
-
-    .surface-sub,
-    .hint,
-    .muted {
-        font-size: 12px;
-        color: var(--text-faint);
-    }
-
-    .target-shell {
+    .diag-banner {
+        border: 1px solid var(--border-soft);
+        border-radius: 14px;
+        background: rgba(243,247,251,0.86);
+        padding: 12px;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 10px;
-        align-items: center;
+        gap: 8px;
     }
+
+    .diag-line { font-size: 13px; color: var(--text-soft); }
+    .diag-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .target-shell { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; }
 
     .field,
     .target-select,
     .number-input {
         width: 100%;
         border: 1px solid var(--border-soft);
-        background: rgba(255, 255, 255, 0.84);
+        background: rgba(255, 255, 255, 0.9);
         color: var(--text);
         border-radius: var(--radius-control);
         padding: 11px 13px;
@@ -62,14 +58,10 @@
         outline: none;
     }
 
-    .task-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 16px;
-    }
+    .task-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 
     .task-card {
-        background: rgba(255, 255, 255, 0.58);
+        background: rgba(255, 255, 255, 0.66);
         border: 1px solid var(--border-soft);
         border-radius: 18px;
         padding: 16px;
@@ -78,22 +70,10 @@
         gap: 14px;
     }
 
-    .field-stack {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
+    .field-stack { display: flex; flex-direction: column; gap: 8px; }
+    .field-label { font-size: 12px; color: var(--text-faint); }
 
-    .field-label {
-        font-size: 12px;
-        color: var(--text-faint);
-    }
-
-    .checkbox-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(120px, 1fr));
-        gap: 10px;
-    }
+    .checkbox-grid { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 10px; }
 
     .checkbox-item {
         display: flex;
@@ -101,7 +81,7 @@
         gap: 8px;
         padding: 10px 12px;
         border-radius: 14px;
-        background: rgba(248, 250, 252, 0.92);
+        background: rgba(248, 250, 252, 0.94);
         border: 1px solid var(--border-soft);
         font-size: 13px;
     }
@@ -122,14 +102,19 @@
         pointer-events: none;
     }
 
-    .toast.show {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    .toast.show { opacity: 1; transform: translateY(0); }
 </style>
 
 <div class="tool-page">
     <section class="tool-surface">
+        <div class="diag-banner">
+            <div class="diag-line"><strong>状态 -> 证据 -> 动作</strong>：所有清洗动作都会生成任务，失败时请先在任务中心查看失败分类，再使用关联诊断定位根因。</div>
+            <div class="diag-actions">
+                <a class="btn btn-primary" href="/task_center">进入任务中心跟踪</a>
+                <a class="btn" href="/chat_visibility">关联诊断</a>
+            </div>
+        </div>
+
         <div class="surface-head">
             <div>
                 <div class="surface-title">目标群组</div>
@@ -156,7 +141,7 @@
                 <input class="number-input" id="batchCount" type="number" min="1" max="5000" placeholder="例如 100">
             </div>
             <button class="btn btn-danger" id="batchDeleteBtn">执行删除</button>
-            <div class="hint">执行前会确认目标群组与删除数量，建议从 50 条以内开始。</div>
+            <div class="hint">执行后请在任务中心查看该任务状态与失败分类。</div>
         </article>
 
         <article class="task-card">
@@ -232,7 +217,8 @@
         const count = Number(document.getElementById('batchCount').value);
         if (!Number.isFinite(count) || count <= 0) { showToast('请输入有效数量'); return; }
         const target = getSelectedTarget();
-        if (!confirm(`确认删除最近 ${count} 条消息？\n目标：${target ? getSelectedTargetLabel() : '全部可维护群组'}`)) return;
+        if (!confirm(`确认删除最近 ${count} 条消息？
+目标：${target ? getSelectedTargetLabel() : '全部可维护群组'}`)) return;
         const resp = await fetch('/api/cleaner/batch_delete', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -241,7 +227,11 @@
         if (resp.status === 401) { redirectToLogin(); return; }
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) { showToast(data.detail || '删除失败'); return; }
-        showToast(`已删除 ${Number(data.total_deleted ?? data.deleted ?? 0)} 条消息`);
+        const jobId = data.job_id || '';
+        showToast('任务已创建，正在跳转任务中心');
+        if (jobId) {
+            setTimeout(() => { window.location.href = `/task_center?task=${encodeURIComponent(jobId)}`; }, 250);
+        }
     }
 
     async function deleteByType() {
@@ -251,7 +241,8 @@
         const limit = Number(document.getElementById('typeLimit').value) || 100;
         if (!types.length) { showToast('请至少选择一种类型'); return; }
         const target = getSelectedTarget();
-        if (!confirm(`确认扫描最近 ${limit} 条消息并删除选定类型？\n目标：${target ? getSelectedTargetLabel() : '全部可维护群组'}`)) return;
+        if (!confirm(`确认扫描最近 ${limit} 条消息并删除选定类型？
+目标：${target ? getSelectedTargetLabel() : '全部可维护群组'}`)) return;
         const resp = await fetch('/api/cleaner/delete_by_type', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -260,7 +251,11 @@
         if (resp.status === 401) { redirectToLogin(); return; }
         const data = await resp.json().catch(() => ({}));
         if (!resp.ok) { showToast(data.detail || '清理失败'); return; }
-        showToast(`已删除 ${Number(data.total_deleted ?? data.deleted ?? 0)} 条消息（扫描 ${Number(data.total_scanned ?? data.scanned ?? 0)} 条）`);
+        const jobId = data.job_id || '';
+        showToast('任务已创建，正在跳转任务中心');
+        if (jobId) {
+            setTimeout(() => { window.location.href = `/task_center?task=${encodeURIComponent(jobId)}`; }, 250);
+        }
     }
 
     document.getElementById('batchDeleteBtn').addEventListener('click', batchDelete);

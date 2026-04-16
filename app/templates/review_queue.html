@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block page_kicker %}Triage{% endblock %}
+{% block page_title %}复核队列{% endblock %}
+{% block page_subtitle %}结果优先：先看哪些任务“没按预期完成”，再看原因与优先动作。{% endblock %}
+
+{% block content %}
+<section class="surface" style="padding:16px; display:grid; gap:12px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+        <h3>需要复核任务</h3>
+        <button class="btn" id="refreshBtn">刷新</button>
+    </div>
+    <div class="muted">来源：<span class="mono">/api/cleaner/review_queue</span></div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:10px;">
+        <div style="border:1px solid var(--border-soft); border-radius:12px; padding:10px; background:rgba(255,255,255,0.85);">
+            <div class="muted">当前复核总数</div>
+            <div id="totalCount" style="font-size:22px; font-weight:800;">0</div>
+        </div>
+        <div style="border:1px solid var(--border-soft); border-radius:12px; padding:10px; background:rgba(255,255,255,0.85);">
+            <div class="muted">高优先原因</div>
+            <div id="topReason" style="font-size:14px; font-weight:700;">-</div>
+        </div>
+    </div>
+
+    <div style="overflow:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead>
+                <tr>
+                    <th style="text-align:left; padding:10px 8px; border-bottom:1px solid var(--border-soft);">任务</th>
+                    <th style="text-align:left; padding:10px 8px; border-bottom:1px solid var(--border-soft);">状态</th>
+                    <th style="text-align:left; padding:10px 8px; border-bottom:1px solid var(--border-soft);">结果摘要</th>
+                    <th style="text-align:left; padding:10px 8px; border-bottom:1px solid var(--border-soft);">复核原因</th>
+                    <th style="text-align:left; padding:10px 8px; border-bottom:1px solid var(--border-soft);">优先动作</th>
+                </tr>
+            </thead>
+            <tbody id="body"></tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(function () {
+    const body = document.getElementById('body');
+    const totalCount = document.getElementById('totalCount');
+    const topReason = document.getElementById('topReason');
+
+    function token() { return localStorage.getItem('token'); }
+    function headers() {
+        const t = token();
+        if (!t) { window.location.href = '/login'; return {}; }
+        return { Authorization: `Bearer ${t}` };
+    }
+
+    async function load() {
+        const resp = await fetch('/api/cleaner/review_queue?limit=100', { headers: headers() });
+        if (resp.status === 401) return (window.location.href = '/login');
+        if (!resp.ok) {
+            body.innerHTML = '<tr><td colspan="5" class="muted" style="padding:10px;">加载失败</td></tr>';
+            return;
+        }
+        const data = await resp.json().catch(() => ({}));
+        const items = Array.isArray(data.items) ? data.items : [];
+        totalCount.textContent = String(data.count || items.length || 0);
+        if (!items.length) {
+            topReason.textContent = '-';
+            body.innerHTML = '<tr><td colspan="5" class="muted" style="padding:10px;">当前没有需要复核任务</td></tr>';
+            return;
+        }
+
+        const reasonCounter = {};
+        items.forEach((item) => {
+            const key = String(item.reason || 'unknown');
+            reasonCounter[key] = (reasonCounter[key] || 0) + 1;
+        });
+        const ranked = Object.entries(reasonCounter).sort((a, b) => b[1] - a[1]);
+        topReason.textContent = ranked.length ? `${ranked[0][0]} (${ranked[0][1]})` : '-';
+
+        body.innerHTML = '';
+        items.forEach((item) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td style="padding:10px 8px; border-bottom:1px solid rgba(15,23,42,0.06);"><a href="/task_center?task=${encodeURIComponent(item.job_id)}" class="mono">${item.job_id}</a></td>
+                <td style="padding:10px 8px; border-bottom:1px solid rgba(15,23,42,0.06);">${item.status_label || item.status || '-'}</td>
+                <td style="padding:10px 8px; border-bottom:1px solid rgba(15,23,42,0.06);">${item.outcome_summary || '-'}</td>
+                <td style="padding:10px 8px; border-bottom:1px solid rgba(15,23,42,0.06);">${item.reason || '-'}</td>
+                <td style="padding:10px 8px; border-bottom:1px solid rgba(15,23,42,0.06);">${item.next_action_summary || item.suggestion || '-'}<div class="muted" style="margin-top:6px;"><a href="${item.action_href || item.links?.task_center || '/task_center'}" class="mono">${item.action_label || 'task_center'}</a></div></td>
+            `;
+            body.appendChild(row);
+        });
+    }
+
+    document.getElementById('refreshBtn').addEventListener('click', load);
+    load();
+})();
+</script>
+{% endblock %}

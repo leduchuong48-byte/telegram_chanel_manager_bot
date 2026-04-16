@@ -30,5 +30,8 @@
   },
   "database": {
     "path": "./data/bot.db"
+  },
+  "pipeline": {
+    "worker_count": 1
   }
 }

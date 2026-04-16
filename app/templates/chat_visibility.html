@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+
+{% block page_kicker %}Runtime Diagnostics{% endblock %}
+{% block page_title %}可见性诊断{% endblock %}
+{% block page_subtitle %}把 chat 生效状态与事件证据放在同一工作台，直接给出诊断结论与建议动作。{% endblock %}
+{% block page_mode %}page-editor{% endblock %}
+
+{% block content %}
+<style>
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .surface { padding: 16px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .muted { color: var(--text-faint); }
+    .chip { border: 1px solid var(--border-soft); border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+    .list { display: flex; flex-direction: column; gap: 10px; max-height: 58vh; overflow: auto; }
+    .item { border: 1px solid var(--border-soft); border-radius: 12px; padding: 10px; background: rgba(255,255,255,0.85); }
+    .diag-card {
+        margin-top: 14px;
+        border: 1px solid var(--border-soft);
+        border-radius: 14px;
+        background: rgba(243,247,251,0.82);
+        padding: 12px;
+        display: grid;
+        gap: 8px;
+    }
+    .diag-card h4 { font-size: 14px; font-weight: 800; }
+    .diag-card .line { font-size: 13px; color: var(--text-soft); }
+
+    @media (max-width: 1200px) { .grid { grid-template-columns: 1fr; } }
+</style>
+
+<div class="grid">
+    <section class="surface">
+        <h3>Chat 可见性与生效状态</h3>
+        <div class="muted" style="margin-bottom:10px;">数据来自 <span class="mono">/api/chat_effective_state/chats</span></div>
+        <div id="chatList" class="list"></div>
+    </section>
+
+    <section class="surface">
+        <h3>删除/处理事件</h3>
+        <div class="muted" style="margin-bottom:10px;">数据来自 <span class="mono">/api/chat_effective_state/events</span></div>
+        <div id="eventsList" class="list"></div>
+
+        <div class="diag-card">
+            <h4>诊断结论</h4>
+            <div class="line" id="diagConclusion">等待状态数据...</div>
+            <h4>建议动作</h4>
+            <div class="line" id="diagAction">先确认执行会话在线，再定位失败任务关联 chat。</div>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(function () {
+    const chatList = document.getElementById('chatList');
+    const eventsList = document.getElementById('eventsList');
+    const diagConclusion = document.getElementById('diagConclusion');
+    const diagAction = document.getElementById('diagAction');
+
+    function token() { return localStorage.getItem('token'); }
+    function headers() {
+        const t = token();
+        if (!t) { window.location.href = '/login'; return {}; }
+        return { Authorization: `Bearer ${t}` };
+    }
+
+    function queryChatId() {
+        const params = new URLSearchParams(window.location.search);
+        const value = (params.get('chat_id') || '').trim();
+        return /^-?\d+$/.test(value) ? value : '';
+    }
+
+    function updateDiagnosis(items, events) {
+        const first = items.length ? items[0] : null;
+        if (!first) {
+            diagConclusion.textContent = '当前未找到可见性数据，可能尚未同步 managed_chats。';
+            diagAction.textContent = '到执行身份中心确认会话在线后，再刷新可见性数据。';
+            return;
+        }
+        const result = first?.effective?.result || 'unknown';
+        const summary = first?.effective?.summary || '无摘要';
+        diagConclusion.textContent = `${result}：${summary}`;
+
+        if (result === 'deleting') {
+            diagAction.textContent = '状态正常，可回到任务中心继续处理失败任务。';
+            return;
+        }
+        if (result === 'permission_blocked') {
+            diagAction.textContent = '请先确认 bot 在目标 chat 拥有管理权限，再重试任务。';
+            return;
+        }
+        if (result === 'matched_but_not_deleting') {
+            diagAction.textContent = '当前处于 observe 模式，请检查 dry-run/delete 配置是否符合预期。';
+            return;
+        }
+        if (!events.length) {
+            diagAction.textContent = '暂无事件证据，建议从任务中心触发一次最小任务获取诊断轨迹。';
+            return;
+        }
+        diagAction.textContent = '已检索到事件证据，建议按时间线逐步回放并对照任务失败分类。';
+    }
+
+    function renderChats(items) {
+        chatList.innerHTML = '';
+        if (!items.length) {
+            chatList.innerHTML = '<div class="muted">暂无可见性数据</div>';
+            return;
+        }
+        items.forEach((item) => {
+            const div = document.createElement('div');
+            div.className = 'item';
+            div.innerHTML = `
+                <div><strong>${item.title || '(no title)'}</strong> <span class="chip mono">${item.chat_id}</span></div>
+                <div class="muted">effective: ${item?.effective?.result || '-'} · mode: ${item?.enforcement?.mode || '-'}</div>
+                <div class="muted">summary: ${item?.effective?.summary || '-'}</div>
+            `;
+            chatList.appendChild(div);
+        });
+    }
+
+    function renderEvents(items) {
+        eventsList.innerHTML = '';
+        if (!items.length) {
+            eventsList.innerHTML = '<div class="muted">暂无事件</div>';
+            return;
+        }
+        items.forEach((item) => {
+            const div = document.createElement('div');
+            div.className = 'item';
+            div.innerHTML = `
+                <div><strong>${item.event_type || 'event'}</strong> <span class="chip mono">${item.chat_id || '-'}</span></div>
+                <div class="muted mono">task=${item.task_id || '-'} msg=${item.message_id || '-'}</div>
+                <div class="muted mono">ts=${item.created_at || 0}</div>
+            `;
+            eventsList.appendChild(div);
+        });
+    }
+
+    async function loadAll() {
+        const chatId = queryChatId();
+        const chatResp = await fetch('/api/chat_effective_state/chats?limit=300&active_only=false', { headers: headers() });
+        if (chatResp.status === 401) return window.location.href = '/login';
+
+        let chatItems = [];
+        if (chatResp.ok) {
+            const data = await chatResp.json();
+            const items = Array.isArray(data.items) ? data.items : [];
+            chatItems = chatId ? items.filter((x) => String(x.chat_id) === chatId) : items;
+            renderChats(chatItems);
+        }
+
+        const params = new URLSearchParams();
+        params.set('limit', '200');
+        if (chatId) params.set('chat_id', chatId);
+        const eventResp = await fetch(`/api/chat_effective_state/events?${params.toString()}`, { headers: headers() });
+        let eventItems = [];
+        if (eventResp.status === 401) return window.location.href = '/login';
+        if (eventResp.ok) {
+            const data = await eventResp.json();
+            eventItems = Array.isArray(data.items) ? data.items : [];
+            renderEvents(eventItems);
+        }
+
+        updateDiagnosis(chatItems, eventItems);
+    }
+
+    loadAll();
+})();
+</script>
+{% endblock %}

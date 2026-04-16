@@ -1,9 +1,7 @@
-version: "3.9"
-
 services:
   telegram_mediachanel_manager_bot:
     build: .
-    image: telegram_mediachanel_manager_bot:3.0
+    image: telegram_mediachanel_manager_bot:4.0
     container_name: telegram_mediachanel_manager_bot
     restart: always
     user: "${UID:-1000}:${GID:-1000}"

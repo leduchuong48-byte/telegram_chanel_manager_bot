@@ -1,0 +1,462 @@
+{% extends "base.html" %}
+
+{% block page_kicker %}Operations{% endblock %}
+{% block page_title %}任务结果中心{% endblock %}
+{% block page_subtitle %}先看结论，再看原因，最后查看证据。你应该在 3 秒内判断任务是否真的执行并产生处理。{% endblock %}
+{% block page_mode %}page-editor{% endblock %}
+
+{% block content %}
+<style>
+    .task-center { display: grid; grid-template-columns: 1.35fr 0.65fr; gap: 16px; }
+    .surface { padding: 18px; }
+    .hero-summary { border: 1px solid var(--border-soft); border-radius: 16px; background: rgba(255,255,255,0.9); padding: 14px; }
+    .hero-title { font-size: 18px; font-weight: 800; }
+    .hero-sub { margin-top: 6px; color: var(--text-soft); font-size: 13px; }
+    .hero-grid { display: grid; grid-template-columns: repeat(5, minmax(110px, 1fr)); gap: 10px; margin-top: 12px; }
+    .hero-cell { border: 1px solid var(--border-soft); border-radius: 12px; padding: 10px; background: rgba(248,250,252,0.9); }
+    .hero-label { font-size: 11px; color: var(--text-faint); }
+    .hero-value { margin-top: 4px; font-weight: 800; }
+
+    .monitor-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 10px; margin-top: 12px; }
+    .monitor-card { border: 1px solid var(--border-soft); border-radius: 12px; padding: 10px; background: rgba(255,255,255,0.82); }
+    .monitor-label { color: var(--text-faint); font-size: 12px; }
+    .monitor-value { margin-top: 2px; font-size: 21px; font-weight: 800; }
+
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 12px; }
+    .field { border: 1px solid var(--border-soft); border-radius: 12px; padding: 8px 10px; background: rgba(255,255,255,0.9); }
+    .muted { color: var(--text-faint); font-size: 12px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+    thead th { text-align: left; color: var(--text-faint); border-bottom: 1px solid var(--border-soft); padding: 10px 8px; }
+    tbody td { border-bottom: 1px solid rgba(15,23,42,0.06); padding: 10px 8px; vertical-align: top; }
+    .status-pill { border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 700; }
+    .s-running { background: rgba(59,130,246,0.12); color: #2563eb; }
+    .s-pending { background: rgba(148,163,184,0.14); color: #475569; }
+    .s-completed { background: rgba(16,185,129,0.15); color: #047857; }
+    .s-failed { background: rgba(239,68,68,0.15); color: #b91c1c; }
+    .s-retry { background: rgba(245,158,11,0.16); color: #b45309; }
+    .s-dead-letter { background: rgba(127,29,29,0.16); color: #7f1d1d; }
+    .s-cancelled { background: rgba(245,158,11,0.16); color: #b45309; }
+
+    .detail-block { margin-top: 10px; border: 1px solid var(--border-soft); border-radius: 12px; padding: 10px; background: rgba(255,255,255,0.82); }
+    .timeline { display: grid; gap: 8px; margin-top: 8px; }
+    .timeline-item { border: 1px solid var(--border-soft); border-radius: 10px; padding: 8px 10px; background: rgba(255,255,255,0.92); }
+    .timeline-item.done { border-color: rgba(16,185,129,0.35); }
+    details { margin-top: 10px; border: 1px dashed var(--border-soft); border-radius: 12px; padding: 8px 10px; background: rgba(248,250,252,0.82); }
+    summary { cursor: pointer; font-size: 12px; color: var(--text-soft); }
+
+    .toast {
+        position: fixed;
+        right: 24px;
+        bottom: 24px;
+        padding: 12px 16px;
+        border-radius: 16px;
+        background: rgba(15,23,42,0.92);
+        color: #fff;
+        font-size: 13px;
+        box-shadow: 0 18px 36px rgba(15,23,42,0.18);
+        opacity: 0;
+        transform: translateY(8px);
+        transition: all 180ms ease;
+        pointer-events: none;
+        z-index: 2000;
+    }
+
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 1200px) {
+        .task-center { grid-template-columns: 1fr; }
+        .hero-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+        table thead { display: none; }
+        table, tbody, tr, td { display: block; width: 100%; }
+        tbody tr { border: 1px solid var(--border-soft); border-radius: 12px; margin-bottom: 10px; }
+        tbody td { border: 0; padding: 8px 10px; }
+    }
+</style>
+
+<div class="task-center">
+    <div style="display:grid; gap:16px;">
+        <section class="surface">
+            <h3>任务结果摘要</h3>
+            <div class="hero-summary">
+                <div class="hero-title" id="heroSummaryTitle">尚未选择任务</div>
+                <div class="hero-sub" id="heroSummarySub">选择任务后，这里会直接告诉你：是否开始、是否完成、是否有实际处理。</div>
+                <div class="hero-grid">
+                    <div class="hero-cell"><div class="hero-label">是否开始</div><div class="hero-value" id="heroDidStart">-</div></div>
+                    <div class="hero-cell"><div class="hero-label">是否完成</div><div class="hero-value" id="heroDidFinish">-</div></div>
+                    <div class="hero-cell"><div class="hero-label">是否有实际处理</div><div class="hero-value" id="heroDidWork">-</div></div>
+                    <div class="hero-cell"><div class="hero-label">结果类别</div><div class="hero-value" id="heroBusinessResult">-</div></div>
+                    <div class="hero-cell"><div class="hero-label">下一步动作</div><div class="hero-value" id="heroNextAction">-</div></div>
+                </div>
+            </div>
+
+            <div class="monitor-grid" id="monitorGrid">
+                <div class="monitor-card"><div class="monitor-label">运行中</div><div class="monitor-value" id="runningJobs">0</div></div>
+                <div class="monitor-card"><div class="monitor-label">异常待处理</div><div class="monitor-value" id="failedJobs">0</div></div>
+                <div class="monitor-card"><div class="monitor-label">暂停群组</div><div class="monitor-value" id="pausedChats">0</div></div>
+            </div>
+        </section>
+
+        <section class="surface">
+            <h3>任务列表</h3>
+            <div class="toolbar">
+                <select id="statusFilter" class="field">
+                    <option value="">全部状态</option>
+                    <option value="pending">pending</option>
+                    <option value="running">running</option>
+                    <option value="retry_wait">retry_wait</option>
+                    <option value="completed">completed</option>
+                    <option value="failed">failed</option>
+                    <option value="failed_permanent">failed_permanent</option>
+                    <option value="dead_letter">dead_letter</option>
+                    <option value="cancelled">cancelled</option>
+                </select>
+                <select id="typeFilter" class="field">
+                    <option value="">全部类型</option>
+                    <option value="batch_delete">batch_delete</option>
+                    <option value="delete_by_type">delete_by_type</option>
+                </select>
+                <input id="chatFilter" class="field" placeholder="按 chat_id 过滤">
+                <button class="btn" id="refreshBtn">刷新</button>
+                <span class="muted">自动刷新 4 秒一次</span>
+            </div>
+            <div style="overflow:auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>任务</th>
+                            <th>状态</th>
+                            <th>结果摘要</th>
+                            <th>时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="jobsBody"></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <section class="surface" id="detailPanel">
+        <h3>任务详情</h3>
+        <div class="muted" id="detailHint">点击左侧任务查看详情</div>
+        <div id="detailContent" style="display:none;">
+            <div class="mono" id="detailJobId"></div>
+
+            <div class="detail-block">
+                <strong>结论</strong>
+                <div class="muted" style="margin-top:6px;" id="detailOperatorSummary">-</div>
+                <div class="muted" style="margin-top:6px;">状态：<span id="detailStatus"></span> · 业务结果：<span id="detailBusinessResult"></span></div>
+                <div class="muted" style="margin-top:6px;">进度：<span id="detailProgress"></span></div>
+            </div>
+
+            <div class="detail-block">
+                <strong>原因与建议</strong>
+                <div class="muted" style="margin-top:6px;">失败分类：<span id="detailFailureCategory">-</span></div>
+                <div class="muted" style="margin-top:6px;">建议动作：<span id="detailNextAction">-</span></div>
+            </div>
+
+            <div class="detail-block">
+                <strong>关键时间线</strong>
+                <div class="timeline" id="detailTimeline"></div>
+            </div>
+
+            <details>
+                <summary>原始事件（证据）</summary>
+                <div class="timeline" id="detailEvents"></div>
+            </details>
+
+            <details>
+                <summary>原始错误与关联链接</summary>
+                <div style="margin-top:8px;" class="mono" id="detailError"></div>
+                <div class="muted" style="margin-top:8px;">关联链接：<span id="detailLinks"></span></div>
+            </details>
+        </div>
+    </section>
+</div>
+<div class="toast" id="toast"></div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(function () {
+    const toast = document.getElementById('toast');
+    const runningEl = document.getElementById('runningJobs');
+    const pausedEl = document.getElementById('pausedChats');
+    const failedEl = document.getElementById('failedJobs');
+    const jobsBody = document.getElementById('jobsBody');
+
+    const heroSummaryTitle = document.getElementById('heroSummaryTitle');
+    const heroSummarySub = document.getElementById('heroSummarySub');
+    const heroDidStart = document.getElementById('heroDidStart');
+    const heroDidFinish = document.getElementById('heroDidFinish');
+    const heroDidWork = document.getElementById('heroDidWork');
+    const heroBusinessResult = document.getElementById('heroBusinessResult');
+    const heroNextAction = document.getElementById('heroNextAction');
+
+    const detailHint = document.getElementById('detailHint');
+    const detailContent = document.getElementById('detailContent');
+    const detailJobId = document.getElementById('detailJobId');
+    const detailStatus = document.getElementById('detailStatus');
+    const detailBusinessResult = document.getElementById('detailBusinessResult');
+    const detailOperatorSummary = document.getElementById('detailOperatorSummary');
+    const detailProgress = document.getElementById('detailProgress');
+    const detailFailureCategory = document.getElementById('detailFailureCategory');
+    const detailNextAction = document.getElementById('detailNextAction');
+    const detailError = document.getElementById('detailError');
+    const detailLinks = document.getElementById('detailLinks');
+    const detailTimeline = document.getElementById('detailTimeline');
+    const detailEvents = document.getElementById('detailEvents');
+    let currentJobId = '';
+    let refreshInFlight = false;
+    let detailRequestSeq = 0;
+    let lastRenderedJobId = '';
+    let hasRenderedDetail = false;
+
+    function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2000);
+    }
+
+    function token() { return localStorage.getItem('token'); }
+    function headers() {
+        const t = token();
+        if (!t) { window.location.href = '/login'; return {}; }
+        return { Authorization: `Bearer ${t}` };
+    }
+
+    function statusClass(status) {
+        return {
+            pending: 's-pending',
+            running: 's-running',
+            retry_wait: 's-retry',
+            completed: 's-completed',
+            failed: 's-failed',
+            failed_permanent: 's-failed',
+            dead_letter: 's-dead-letter',
+            cancelled: 's-cancelled',
+        }[status] || 's-pending';
+    }
+
+    function statusLabel(status) {
+        return {
+            pending: '等待执行',
+            running: '执行中',
+            retry_wait: '等待重试',
+            completed: '已完成',
+            failed: '执行失败',
+            failed_permanent: '永久失败',
+            dead_letter: '死信待处理',
+            cancelled: '已取消',
+        }[status] || status || '-';
+    }
+
+    function formatTs(ts) {
+        const value = Number(ts || 0);
+        if (!value) return '-';
+        const d = new Date(value * 1000);
+        return d.toLocaleString();
+    }
+
+    function boolLabel(v) {
+        return v ? '是' : '否';
+    }
+
+    function renderHero(data) {
+        heroSummaryTitle.textContent = data.operator_summary || data.outcome_summary || '任务状态已更新';
+        heroSummarySub.textContent = `任务ID: ${data.job_id || '-'} · 状态: ${data.status_label || statusLabel(data.status)}`;
+        heroDidStart.textContent = boolLabel(Boolean(data.did_start));
+        heroDidFinish.textContent = boolLabel(Boolean(data.did_finish));
+        heroDidWork.textContent = boolLabel(Boolean(data.did_work));
+        heroBusinessResult.textContent = data.business_result_label || data.business_result || '-';
+        heroNextAction.textContent = data.next_action_summary || data.recommended_action || '-';
+    }
+
+    async function loadMonitoring() {
+        const resp = await fetch('/api/cleaner/monitoring', { headers: headers() });
+        if (resp.status === 401) return (window.location.href = '/login');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        runningEl.textContent = String(data.running_jobs ?? 0);
+        pausedEl.textContent = String(data.paused_chats ?? 0);
+        failedEl.textContent = String(data.recent_failed_jobs ?? 0);
+    }
+
+    function renderJobs(jobs) {
+        jobsBody.innerHTML = '';
+        if (!jobs.length) {
+            jobsBody.innerHTML = '<tr><td colspan="5" class="muted">暂无任务</td></tr>';
+            return;
+        }
+        jobs.forEach((job) => {
+            const canCancel = job.status === 'pending' || job.status === 'running';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="mono"><button class="btn" data-detail="${job.job_id}">${job.job_id}</button></td>
+                <td><span class="status-pill ${statusClass(job.status)}">${job.status_label || statusLabel(job.status)}</span></td>
+                <td>
+                    <div>${job.operator_summary || job.outcome_summary || '-'}</div>
+                    <div class="muted mono">扫描 ${job.progress?.scanned || 0} / 命中 ${job.progress?.matched || 0} / 处理 ${job.progress?.acted || 0} / 失败 ${job.progress?.failed || 0}</div>
+                </td>
+                <td class="muted">开始 ${formatTs(job.started_at)}<br>结束 ${formatTs(job.finished_at)}</td>
+                <td>${canCancel ? `<button class="btn" data-cancel="${job.job_id}">取消任务</button>` : '<span class="muted">-</span>'}</td>
+            `;
+            jobsBody.appendChild(tr);
+        });
+    }
+
+    async function loadJobs() {
+        const status = (document.getElementById('statusFilter').value || '').trim();
+        const taskType = (document.getElementById('typeFilter').value || '').trim();
+        const chatRaw = (document.getElementById('chatFilter').value || '').trim();
+        const params = new URLSearchParams();
+        params.set('limit', '100');
+        if (status) params.set('status', status);
+        if (taskType) params.set('task_type', taskType);
+        if (chatRaw && /^-?\d+$/.test(chatRaw)) params.set('chat_id', chatRaw);
+
+        const resp = await fetch(`/api/cleaner/jobs?${params.toString()}`, { headers: headers() });
+        if (resp.status === 401) return (window.location.href = '/login');
+        if (!resp.ok) { showToast('加载任务失败'); return; }
+        const data = await resp.json();
+        renderJobs(Array.isArray(data.jobs) ? data.jobs : []);
+    }
+
+    async function loadJobDetail(jobId) {
+        const normalizedJobId = String(jobId || '').trim();
+        if (!normalizedJobId) return;
+        currentJobId = normalizedJobId;
+        const requestSeq = ++detailRequestSeq;
+
+        const resp = await fetch(`/api/cleaner/jobs/${encodeURIComponent(normalizedJobId)}`, { headers: headers() });
+        if (resp.status === 401) return (window.location.href = '/login');
+        if (!resp.ok) {
+            if (requestSeq !== detailRequestSeq) return;
+            showToast('加载任务详情失败');
+            return;
+        }
+        const data = await resp.json();
+        if (requestSeq !== detailRequestSeq) return;
+
+        detailHint.style.display = 'none';
+        detailContent.style.display = '';
+        detailJobId.textContent = `任务ID: ${data.job_id}`;
+        detailStatus.textContent = data.status_label || statusLabel(data.status);
+        detailBusinessResult.textContent = data.business_result_label || data.business_result || '-';
+        detailOperatorSummary.textContent = data.operator_summary || data.outcome_summary || '-';
+        const progress = data.progress || {};
+        detailProgress.textContent = `扫描 ${progress.scanned || 0} / 命中 ${progress.matched || 0} / 处理 ${progress.acted || 0} / 失败 ${progress.failed || 0}`;
+        detailFailureCategory.textContent = data.failure_category || '-';
+        detailNextAction.textContent = data.next_action_summary || data.recommended_action || '-';
+        detailError.textContent = data.last_error ? `错误: ${data.last_error}` : '无原始错误';
+        hasRenderedDetail = true;
+        lastRenderedJobId = String(data.job_id || normalizedJobId);
+
+        renderHero(data);
+
+        const relatedLinks = data.related_links || {};
+        const linkEntries = Object.entries(relatedLinks).filter((entry) => typeof entry[1] === 'string' && entry[1]);
+        if (!linkEntries.length) {
+            detailLinks.textContent = '-';
+        } else {
+            detailLinks.innerHTML = linkEntries.map(([key, href]) => `<a href="${href}" class="mono">${key}</a>`).join(' · ');
+        }
+
+        detailTimeline.innerHTML = '';
+        (Array.isArray(data.timeline) ? data.timeline : []).forEach((item) => {
+            if (!item.done && !['started', 'completed', 'failed', 'cancelled'].includes(item.key)) {
+                return;
+            }
+            const div = document.createElement('div');
+            div.className = `timeline-item ${item.done ? 'done' : ''}`;
+            div.innerHTML = `<strong>${item.label || item.key}</strong><div class="muted mono">${formatTs(item.at)}</div>`;
+            detailTimeline.appendChild(div);
+        });
+
+        const evResp = await fetch(`/api/cleaner/jobs/${encodeURIComponent(normalizedJobId)}/events`, { headers: headers() });
+        if (evResp.status === 401) return (window.location.href = '/login');
+        if (!evResp.ok) {
+            if (requestSeq !== detailRequestSeq) return;
+            if (!hasRenderedDetail || !lastRenderedJobId) {
+                detailEvents.innerHTML = '<div class="timeline-item"><strong>事件拉取失败</strong></div>';
+            }
+            return;
+        }
+        const evData = await evResp.json().catch(() => ({}));
+        if (requestSeq !== detailRequestSeq) return;
+        const events = Array.isArray(evData.events) ? evData.events : [];
+        detailEvents.innerHTML = '';
+        if (!events.length) {
+            detailEvents.innerHTML = '<div class="timeline-item"><strong>暂无事件</strong></div>';
+            return;
+        }
+        events.forEach((item) => {
+            const payload = item && item.payload && typeof item.payload === 'object' ? item.payload : {};
+            const payloadText = Object.keys(payload).length ? JSON.stringify(payload) : '-';
+            const div = document.createElement('div');
+            div.className = 'timeline-item';
+            div.innerHTML = `<strong>${item.event_type || 'event'}</strong><div class="muted mono">${formatTs(item.created_at)} · ${payloadText}</div>`;
+            detailEvents.appendChild(div);
+        });
+    }
+
+    async function cancelJob(jobId) {
+        const resp = await fetch(`/api/cleaner/jobs/${encodeURIComponent(jobId)}/cancel`, {
+            method: 'POST',
+            headers: { ...headers(), 'Content-Type': 'application/json' },
+        });
+        if (resp.status === 401) return (window.location.href = '/login');
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.success) {
+            showToast(data.detail || data.message || '取消任务失败');
+            return;
+        }
+        showToast('任务已取消');
+        await refreshAll();
+    }
+
+    async function refreshAll() {
+        if (refreshInFlight) return;
+        refreshInFlight = true;
+        try {
+            await Promise.all([loadMonitoring(), loadJobs()]);
+            if (currentJobId) {
+                await loadJobDetail(currentJobId);
+            }
+        } finally {
+            refreshInFlight = false;
+        }
+    }
+
+    async function openTaskFromQuery() {
+        const params = new URLSearchParams(window.location.search);
+        const jobId = (params.get('task') || '').trim();
+        if (!jobId) return;
+        currentJobId = jobId;
+        await loadJobDetail(jobId);
+    }
+
+    jobsBody.addEventListener('click', async (event) => {
+        const cancelBtn = event.target.closest('button[data-cancel]');
+        if (cancelBtn) {
+            await cancelJob(cancelBtn.dataset.cancel);
+            return;
+        }
+        const detailBtn = event.target.closest('button[data-detail]');
+        if (detailBtn) {
+            await loadJobDetail(detailBtn.dataset.detail);
+        }
+    });
+
+    document.getElementById('refreshBtn').addEventListener('click', refreshAll);
+    ['statusFilter', 'typeFilter', 'chatFilter'].forEach((id) => {
+        document.getElementById(id).addEventListener('change', loadJobs);
+    });
+
+    refreshAll().then(openTaskFromQuery);
+    setInterval(refreshAll, 4000);
+})();
+</script>
+{% endblock %}

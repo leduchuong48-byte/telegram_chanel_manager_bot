@@ -2,46 +2,48 @@
 
 {% block title %}Admin Panel - Bot 设置{% endblock %}
 
+{% block page_kicker %}System Settings{% endblock %}
 {% block page_title %}Bot 设置{% endblock %}
-{% block page_subtitle %}集中管理 Bot 核心鉴权与目标群组参数{% endblock %}
+{% block page_subtitle %}集中管理 Bot 核心鉴权与目标群组参数，变更前先判断执行链路影响。{% endblock %}
+{% block page_mode %}page-tool{% endblock %}
 
-{% block page_actions %}
+{% block top_actions %}
 <button class="btn" id="btn-refresh">刷新</button>
 <button class="btn btn-primary" id="btn-save">保存设置</button>
 {% endblock %}
 
+{% block page_insights %}
+<div class="insight-strip">
+    <div class="insight-pill">执行链路影响：会影响任务解析 chat 与执行权限</div>
+    <div class="insight-pill">风险提示：错误配置会导致任务持续失败</div>
+    <a class="insight-pill" href="/chat_visibility">关联诊断</a>
+</div>
+{% endblock %}
+
 {% block extra_head %}
 <style>
+    .settings-page { display: grid; gap: 16px; }
+    .impact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+    .impact-card { border: 1px solid var(--border-soft); border-radius: 14px; background: rgba(243,247,251,0.86); padding: 12px; }
+    .impact-card h4 { font-size: 14px; font-weight: 800; margin-bottom: 6px; }
+    .impact-card p { font-size: 12px; color: var(--text-soft); }
+
     .form-card {
-        background: rgba(12, 20, 30, 0.72);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: var(--bg-panel);
+        border: 1px solid var(--border-soft);
         border-radius: 22px;
         padding: 24px;
-        box-shadow: 0 20px 44px rgba(6, 12, 18, 0.45);
+        box-shadow: var(--shadow-panel);
     }
 
-    .form-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: 18px;
-    }
-
-    .form-field {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .form-field label {
-        font-size: 13px;
-        color: var(--muted);
-        letter-spacing: 0.4px;
-    }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
+    .form-field { display: flex; flex-direction: column; gap: 8px; }
+    .form-field label { font-size: 13px; color: var(--text-faint); }
 
     .form-field input,
     .form-field textarea {
-        background: rgba(8, 14, 22, 0.85);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid var(--border-soft);
         border-radius: 14px;
         padding: 12px 14px;
         color: var(--text);
@@ -50,74 +52,77 @@
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
-    .form-field textarea {
-        min-height: 104px;
-        resize: vertical;
-    }
-
+    .form-field textarea { min-height: 104px; resize: vertical; }
     .form-field input:focus,
-    .form-field textarea:focus {
-        border-color: rgba(10, 132, 255, 0.6);
-        box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.15);
-    }
+    .form-field textarea:focus { border-color: rgba(10, 120, 234, 0.6); box-shadow: 0 0 0 3px rgba(10, 120, 234, 0.15); }
 
-    .hint {
-        font-size: 12px;
-        color: var(--muted);
-    }
+    .hint { font-size: 12px; color: var(--text-faint); }
 
     .toast {
         position: fixed;
         bottom: 24px;
         right: 24px;
-        background: rgba(10, 16, 24, 0.9);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: var(--text);
+        background: rgba(15, 23, 42, 0.92);
+        color: #fff;
         padding: 12px 18px;
         border-radius: 12px;
-        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.45);
+        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.24);
         opacity: 0;
         transform: translateY(8px);
         transition: all 0.2s ease;
         pointer-events: none;
     }
 
-    .toast.show {
-        opacity: 1;
-        transform: translateY(0);
-    }
+    .toast.show { opacity: 1; transform: translateY(0); }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="form-card">
-    <div class="form-grid">
-        <div class="form-field">
-            <label for="bot_token">Bot Token</label>
-            <input id="bot_token" type="password" placeholder="未设置">
-            <div class="hint">若显示 *****，表示已存在密钥。留空可清除。</div>
-        </div>
-        <div class="form-field">
-            <label for="api_id">API ID</label>
-            <input id="api_id" type="text" placeholder="例如：123456">
-        </div>
-        <div class="form-field">
-            <label for="api_hash">API Hash</label>
-            <input id="api_hash" type="password" placeholder="例如：abcd1234">
-        </div>
-        <div class="form-field">
-            <label for="target_chat_ids">目标群组列表</label>
-            <textarea id="target_chat_ids" placeholder="-1001234567890&#10;-1009876543210&#10;@channel_username"></textarea>
-            <div class="hint">支持换行 / 逗号 / 分号分隔；留空时自动发现当前 Web 登录账号可管理的群组/频道。</div>
-        </div>
-        <div class="form-field">
-            <label for="web_tg_session">Web Telethon Session</label>
-            <input id="web_tg_session" type="text" placeholder="建议：./sessions/webui">
-            <div class="hint">用于 WebUI 维护工具，建议与运行中 Bot 的 TG_SESSION 分离。</div>
-        </div>
-        <div class="form-field">
-            <label for="admin_id">管理员 ID</label>
-            <input id="admin_id" type="text" placeholder="例如：12345678">
+<div class="settings-page">
+    <section class="impact-grid">
+        <article class="impact-card">
+            <h4>执行链路影响</h4>
+            <p>`web_tg_session`、目标群组与 API 凭据会直接影响任务是否能解析 chat 并执行动作。</p>
+        </article>
+        <article class="impact-card">
+            <h4>风险提示</h4>
+            <p>错误配置会引发持续失败，请在保存后进入任务中心和可见性诊断页确认状态。</p>
+        </article>
+        <article class="impact-card">
+            <h4>关联诊断</h4>
+            <p>建议保存后打开 `task_center` + `chat_visibility`，检查失败分类与执行身份一致性。</p>
+        </article>
+    </section>
+
+    <div class="form-card">
+        <div class="form-grid">
+            <div class="form-field">
+                <label for="bot_token">Bot Token</label>
+                <input id="bot_token" type="password" placeholder="未设置">
+                <div class="hint">若显示 *****，表示已存在密钥。留空可清除。</div>
+            </div>
+            <div class="form-field">
+                <label for="api_id">API ID</label>
+                <input id="api_id" type="text" placeholder="例如：123456">
+            </div>
+            <div class="form-field">
+                <label for="api_hash">API Hash</label>
+                <input id="api_hash" type="password" placeholder="例如：abcd1234">
+            </div>
+            <div class="form-field">
+                <label for="target_chat_ids">目标群组列表</label>
+                <textarea id="target_chat_ids" placeholder="-1001234567890&#10;-1009876543210&#10;@channel_username"></textarea>
+                <div class="hint">支持换行 / 逗号 / 分号分隔；留空时自动发现当前 Web 登录账号可管理的群组/频道。</div>
+            </div>
+            <div class="form-field">
+                <label for="web_tg_session">Web Telethon Session</label>
+                <input id="web_tg_session" type="text" placeholder="建议：./sessions/webui">
+                <div class="hint">用于 WebUI 维护工具，建议与运行中 Bot 的 TG_SESSION 分离。</div>
+            </div>
+            <div class="form-field">
+                <label for="admin_id">启动通知 User ID（兼容）</label>
+                <input id="admin_id" type="text" placeholder="例如：12345678">
+            </div>
         </div>
     </div>
 </div>
@@ -127,7 +132,6 @@
 {% block extra_script %}
 <script>
     const TOKEN_KEY = 'token';
-    const TOKEN_MASK = '*****';
 
     const fields = {
         bot_token: document.getElementById('bot_token'),

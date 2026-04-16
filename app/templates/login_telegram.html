@@ -1,176 +1,215 @@
 {% extends "base.html" %}
 
+{% block page_kicker %}Execution Identity{% endblock %}
+{% block page_title %}执行身份中心{% endblock %}
+{% block page_subtitle %}明确 Web 登录身份、Telegram 控制身份与 Telethon 执行身份边界，确保任务执行可用。{% endblock %}
+
+{% block page_insights %}
+<div class="insight-strip">
+    <div class="insight-pill">Web 登录身份：用于进入管理台</div>
+    <div class="insight-pill">Telegram 控制身份：用于下发 Bot 控制指令</div>
+    <div class="insight-pill">Telethon 执行身份：用于历史任务实际执行</div>
+</div>
+{% endblock %}
+
 {% block content %}
 <style>
-    .session-card {
-        background: rgba(12, 20, 30, 0.72);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 24px;
-        padding: 26px;
-        box-shadow: 0 24px 50px rgba(6, 12, 18, 0.45);
-        display: flex;
-        flex-direction: column;
-        gap: 20px;
-        min-height: 60vh;
-    }
+    .identity-layout { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 16px; }
+    .surface { padding: 18px; }
+    .identity-title { font-size: 16px; font-weight: 800; }
+    .identity-muted { font-size: 13px; color: var(--text-faint); }
 
-    .stepper {
+    .boundary-list {
+        margin-top: 12px;
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 12px;
-    }
-
-    .step {
-        padding: 12px 16px;
-        border-radius: 14px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(8, 14, 22, 0.6);
-        font-size: 13px;
-        color: var(--muted);
-        display: flex;
-        align-items: center;
         gap: 10px;
     }
 
-    .step.active {
-        border-color: rgba(10, 132, 255, 0.45);
-        background: rgba(10, 132, 255, 0.12);
-        color: var(--text);
-    }
-
-    .step.done {
-        color: #82d4ff;
-        border-color: rgba(130, 212, 255, 0.3);
-    }
-
-    .form-grid {
-        display: grid;
-        gap: 16px;
-        max-width: 520px;
-    }
-
-    .form-field {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .form-field label {
-        font-size: 13px;
-        color: var(--muted);
-    }
-
-    .form-field input {
-        background: rgba(8, 14, 22, 0.85);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+    .boundary-item {
+        border: 1px solid var(--border-soft);
         border-radius: 14px;
-        padding: 12px 14px;
-        color: var(--text);
-        font-size: 14px;
-        outline: none;
+        background: rgba(255,255,255,0.82);
+        padding: 12px;
+        display: grid;
+        gap: 4px;
     }
 
-    .form-actions {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-    }
+    .boundary-item strong { font-size: 14px; }
+    .boundary-item span { font-size: 12px; color: var(--text-soft); }
 
     .status-card {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 16px 18px;
-        border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(8, 14, 22, 0.7);
+        padding: 14px;
+        border-radius: 14px;
+        border: 1px solid var(--border-soft);
+        background: rgba(255,255,255,0.82);
+        margin-top: 12px;
     }
 
-    .status-text {
-        display: flex;
-        flex-direction: column;
+    .status-text { display: flex; flex-direction: column; gap: 6px; }
+    .status-text strong { font-size: 15px; }
+    .status-text span { font-size: 12px; color: var(--text-faint); }
+
+    .stepper {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+    }
+
+    .step {
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid var(--border-soft);
+        background: rgba(243,247,251,0.9);
+        font-size: 12px;
+        color: var(--text-faint);
+    }
+
+    .step.active {
+        border-color: rgba(10,120,234,0.4);
+        background: rgba(10,120,234,0.12);
+        color: var(--text-soft);
+        font-weight: 700;
+    }
+
+    .step.done {
+        border-color: rgba(4,120,87,0.32);
+        background: rgba(4,120,87,0.1);
+        color: #047857;
+    }
+
+    .form-grid { display: grid; gap: 14px; margin-top: 12px; }
+    .form-field { display: flex; flex-direction: column; gap: 6px; }
+    .form-field label { font-size: 12px; color: var(--text-faint); }
+    .form-field input {
+        border: 1px solid var(--border-soft);
+        border-radius: 12px;
+        padding: 10px 12px;
+        font-size: 14px;
+        background: rgba(255,255,255,0.9);
+        color: var(--text);
+    }
+    .form-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    .diag-card {
+        margin-top: 12px;
+        border: 1px solid var(--border-soft);
+        border-radius: 14px;
+        background: rgba(243,247,251,0.82);
+        padding: 12px;
+        display: grid;
         gap: 6px;
     }
 
-    .status-text strong {
-        font-size: 15px;
-    }
-
-    .status-text span {
-        font-size: 12px;
-        color: var(--muted);
-    }
+    .diag-card h4 { font-size: 14px; font-weight: 800; }
+    .diag-card p { font-size: 12px; color: var(--text-soft); }
 
     .toast {
         position: fixed;
         bottom: 24px;
         right: 24px;
-        background: rgba(10, 16, 24, 0.9);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: var(--text);
+        background: rgba(15,23,42,0.92);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        color: #fff;
         padding: 12px 18px;
         border-radius: 12px;
-        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.45);
+        box-shadow: 0 18px 40px rgba(6, 12, 18, 0.25);
         opacity: 0;
         transform: translateY(8px);
         transition: all 0.2s ease;
         pointer-events: none;
+        z-index: 1200;
     }
 
-    .toast.show {
-        opacity: 1;
-        transform: translateY(0);
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 1080px) {
+        .identity-layout { grid-template-columns: 1fr; }
+        .stepper { grid-template-columns: 1fr; }
     }
 </style>
 
-<div class="session-card">
-    <div class="status-card" id="statusBox" style="display:none;">
-        <div class="status-text">
-            <strong>✅ 已连接 Telegram 账号</strong>
-            <span id="statusDetail">账号信息加载中...</span>
-        </div>
-        <button class="btn" id="logoutBtn">注销</button>
-    </div>
-
-    <div id="stepsBox">
-        <div class="stepper">
-            <div class="step" data-step="1">① 输入手机号</div>
-            <div class="step" data-step="2">② 输入验证码</div>
-            <div class="step" data-step="3">③ 2FA 密码</div>
-        </div>
-
-        <div class="form-grid" id="step1">
-            <div class="form-field">
-                <label for="phoneInput">手机号</label>
-                <input id="phoneInput" placeholder="+86 13800000000">
+<div class="identity-layout">
+    <section class="surface">
+        <div class="identity-title">身份边界</div>
+        <div class="identity-muted">同一操作链路里有三种身份，边界清晰才能避免“有权限但执行失败”的误判。</div>
+        <div class="boundary-list">
+            <div class="boundary-item">
+                <strong>Web 登录身份</strong>
+                <span>只决定你是否能访问管理台页面与 API。</span>
             </div>
-            <div class="form-actions">
-                <button class="btn btn-primary" id="sendCodeBtn">发送验证码</button>
+            <div class="boundary-item">
+                <strong>Telegram 控制身份</strong>
+                <span>决定谁可以通过 Telegram 控制 Bot 行为。</span>
+            </div>
+            <div class="boundary-item">
+                <strong>Telethon 执行身份</strong>
+                <span>决定历史任务是否能解析目标 chat 并执行动作。</span>
             </div>
         </div>
 
-        <div class="form-grid" id="step2" style="display:none;">
-            <div class="form-field">
-                <label for="codeInput">验证码</label>
-                <input id="codeInput" placeholder="请输入短信/Telegram 验证码">
+        <div class="diag-card">
+            <h4>执行链路诊断</h4>
+            <p>如果任务失败且提示 chat 解析/可见性问题，优先检查 Telethon 执行身份是否在线、是否在目标群内。</p>
+            <p>若执行身份在线但仍失败，再进入可见性诊断页对照事件证据。</p>
+        </div>
+    </section>
+
+    <section class="surface">
+        <div class="identity-title">Telethon 会话登录</div>
+        <div class="identity-muted">登录成功后，任务中心将以该身份执行历史任务。</div>
+
+        <div class="status-card" id="statusBox" style="display:none;">
+            <div class="status-text">
+                <strong>✅ 已连接 Telegram 账号</strong>
+                <span id="statusDetail">账号信息加载中...</span>
             </div>
-            <div class="form-actions">
-                <button class="btn btn-primary" id="loginBtn">登录</button>
-                <button class="btn" id="backToPhone">返回修改手机号</button>
-            </div>
+            <button class="btn" id="logoutBtn">注销</button>
         </div>
 
-        <div class="form-grid" id="step3" style="display:none;">
-            <div class="form-field">
-                <label for="passwordInput">二次验证密码</label>
-                <input id="passwordInput" type="password" placeholder="请输入 2FA 密码">
+        <div id="stepsBox">
+            <div class="stepper">
+                <div class="step" data-step="1">① 输入手机号</div>
+                <div class="step" data-step="2">② 输入验证码</div>
+                <div class="step" data-step="3">③ 2FA 密码</div>
             </div>
-            <div class="form-actions">
-                <button class="btn btn-primary" id="verifyBtn">验证</button>
-                <button class="btn" id="backToCode">返回验证码</button>
+
+            <div class="form-grid" id="step1">
+                <div class="form-field">
+                    <label for="phoneInput">手机号</label>
+                    <input id="phoneInput" placeholder="+86 13800000000">
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-primary" id="sendCodeBtn">发送验证码</button>
+                </div>
+            </div>
+
+            <div class="form-grid" id="step2" style="display:none;">
+                <div class="form-field">
+                    <label for="codeInput">验证码</label>
+                    <input id="codeInput" placeholder="请输入短信/Telegram 验证码">
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-primary" id="loginBtn">登录</button>
+                    <button class="btn" id="backToPhone">返回修改手机号</button>
+                </div>
+            </div>
+
+            <div class="form-grid" id="step3" style="display:none;">
+                <div class="form-field">
+                    <label for="passwordInput">二次验证密码</label>
+                    <input id="passwordInput" type="password" placeholder="请输入 2FA 密码">
+                </div>
+                <div class="form-actions">
+                    <button class="btn btn-primary" id="verifyBtn">验证</button>
+                    <button class="btn" id="backToCode">返回验证码</button>
+                </div>
             </div>
         </div>
-    </div>
+    </section>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -245,7 +284,7 @@
             statusBox.style.display = 'flex';
             stepsBox.style.display = 'none';
             const label = data.phone ? maskPhone(data.phone) : (data.username || data.user_id || '');
-            statusDetail.textContent = label ? `已连接账号：${label}` : '已连接，未返回账号信息';
+            statusDetail.textContent = label ? `执行身份在线：${label}` : '已连接，未返回账号信息';
         } else {
             statusBox.style.display = 'none';
             stepsBox.style.display = 'block';

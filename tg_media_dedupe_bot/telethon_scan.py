@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+import asyncio
 import inspect
 import logging
 import re
@@ -19,6 +20,21 @@ class ScanResult:
     decided_delete: int
     deleted: int
     failed: int
+
+
+def build_scan_progress_snapshot(result: ScanResult, *, status: str) -> dict[str, int | str]:
+    return {
+        "status": status,
+        "scanned": int(result.scanned),
+        "matched": int(result.decided_delete),
+        "acted": int(result.deleted),
+        "failed": int(result.failed),
+    }
+
+
+def _raise_if_stop_requested(stop_checker: Callable[[], bool] | None) -> None:
+    if stop_checker is not None and stop_checker():
+        raise asyncio.CancelledError()
 
 
 async def _maybe_await(value):
@@ -213,6 +229,7 @@ async def run_scan(
     interactive: bool = True,
     progress_cb: Callable[[ScanResult], Awaitable[None]] | None = None,
     progress_interval: int = 500,
+    stop_checker: Callable[[], bool] | None = None,
 ) -> ScanResult:
     config = load_config()
 
@@ -341,6 +358,7 @@ async def run_scan(
             )
 
         async for msg in client.iter_messages(entity, limit=limit or None, reverse=reverse):
+            _raise_if_stop_requested(stop_checker)
             if msg is None or msg.id is None or msg.chat_id is None:
                 continue
 
@@ -362,6 +380,7 @@ async def run_scan(
                 )
                 if progress_cb and progress_interval > 0 and result.scanned % progress_interval == 0:
                     await progress_cb(result)
+                _raise_if_stop_requested(stop_checker)
                 continue
 
             if media_type is None:
@@ -374,6 +393,7 @@ async def run_scan(
                     )
                 if progress_cb and progress_interval > 0 and result.scanned % progress_interval == 0:
                     await progress_cb(result)
+                _raise_if_stop_requested(stop_checker)
                 continue
 
             if media_type in blacklist:
@@ -385,6 +405,7 @@ async def run_scan(
                 )
                 if progress_cb and progress_interval > 0 and result.scanned % progress_interval == 0:
                     await progress_cb(result)
+                _raise_if_stop_requested(stop_checker)
                 continue
 
             media_key: str | None = None
@@ -419,6 +440,7 @@ async def run_scan(
 
             if progress_cb and progress_interval > 0 and result.scanned % progress_interval == 0:
                 await progress_cb(result)
+                _raise_if_stop_requested(stop_checker)
 
             if decision.message_id_to_delete is None:
                 continue

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Awaitable, Callable
+import asyncio
 import inspect
 import logging
 import re
@@ -23,6 +24,28 @@ class TagScanResult:
     scanned: int
     tag_counts: dict[str, int]
     total_tags: int
+
+
+def build_tag_progress_snapshot(progress: TagScanProgress | TagScanResult, *, status: str) -> dict[str, int | str]:
+    if isinstance(progress, TagScanResult):
+        unique_tags = len(progress.tag_counts)
+        total_tags = progress.total_tags
+        scanned = progress.scanned
+    else:
+        unique_tags = progress.unique_tags
+        total_tags = progress.total_tags
+        scanned = progress.scanned
+    return {
+        "status": status,
+        "scanned": int(scanned),
+        "unique_tags": int(unique_tags),
+        "total_tags": int(total_tags),
+    }
+
+
+def _raise_if_stop_requested(stop_checker: Callable[[], bool] | None) -> None:
+    if stop_checker is not None and stop_checker():
+        raise asyncio.CancelledError()
 
 
 async def _maybe_await(value):
@@ -175,6 +198,7 @@ async def run_tag_scan(
     interactive: bool = True,
     progress_cb: Callable[[TagScanProgress], Awaitable[None]] | None = None,
     progress_interval: int = 500,
+    stop_checker: Callable[[], bool] | None = None,
 ) -> TagScanResult:
     config = load_config()
 
@@ -224,6 +248,7 @@ async def run_tag_scan(
         )
 
         async for msg in client.iter_messages(entity, limit=limit or None, reverse=reverse):
+            _raise_if_stop_requested(stop_checker)
             if msg is None or msg.id is None:
                 continue
             scanned += 1
@@ -238,6 +263,7 @@ async def run_tag_scan(
 
             if progress_cb and progress_interval > 0 and scanned % progress_interval == 0:
                 await progress_cb(TagScanProgress(scanned=scanned, unique_tags=len(counts), total_tags=total_tags))
+                _raise_if_stop_requested(stop_checker)
     finally:
         await _maybe_await(client.disconnect())
 

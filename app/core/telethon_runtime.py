@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from fastapi import HTTPException, status
+
+from app.core.runtime_settings import load_runtime_settings
 from telethon import TelegramClient
 from telethon.tl.types import Channel, ChannelForbidden, Chat, ChatForbidden
 
@@ -26,8 +28,18 @@ def get_bot_config(config: dict[str, Any]) -> dict[str, Any]:
     """Return normalized bot config object from global config."""
     bot_config = config.get("bot", {}) if isinstance(config, dict) else {}
     if not isinstance(bot_config, dict):
-        return {}
-    return bot_config
+        bot_config = {}
+    settings = load_runtime_settings(config if isinstance(config, dict) else {})
+    merged = dict(bot_config)
+    merged["dry_run"] = settings.dry_run
+    merged["delete_duplicates"] = settings.delete_duplicates
+    merged["api_id"] = settings.api_id or merged.get("api_id", "")
+    merged["api_hash"] = settings.api_hash or merged.get("api_hash", "")
+    merged["bot_token"] = settings.bot_token or merged.get("bot_token", "")
+    merged["admin_id"] = settings.admin_id or merged.get("admin_id", "")
+    merged["target_chat_ids"] = settings.target_chat_tokens
+    merged["web_tg_session"] = settings.web_tg_session
+    return merged
 
 
 def _dedupe_keep_order(items: list[str]) -> list[str]:
