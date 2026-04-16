@@ -123,6 +123,32 @@
                 <label for="admin_id">启动通知 User ID（兼容）</label>
                 <input id="admin_id" type="text" placeholder="例如：12345678">
             </div>
+            <div class="form-field">
+                <label for="llm_provider_key">LLM Provider Key</label>
+                <input id="llm_provider_key" type="text" placeholder="local-ai">
+            </div>
+            <div class="form-field">
+                <label for="llm_base_url">LLM Base URL</label>
+                <input id="llm_base_url" type="text" placeholder="https://api.nas.xiaoermiao.xyz:1996">
+                <div id="llm_base_url_warning" class="hint">提示：不要手动追加 /v1，网关重定向后会自动带上。</div>
+            </div>
+            <div class="form-field">
+                <label for="llm_api_key">LLM API Key</label>
+                <input id="llm_api_key" type="password" placeholder="*****">
+                <div class="hint">显示 ***** 表示已配置密钥。输入新值将覆盖。</div>
+            </div>
+            <div class="form-field">
+                <label for="llm_model">LLM Model</label>
+                <input id="llm_model" type="text" placeholder="gpt-5.2">
+            </div>
+            <div class="form-field">
+                <label for="llm_use_responses_mode">LLM Responses Mode</label>
+                <input id="llm_use_responses_mode" type="text" placeholder="auto / off / force_on / force_off">
+            </div>
+            <div class="form-field">
+                <label for="llm_enabled">LLM Enabled</label>
+                <input id="llm_enabled" type="text" placeholder="true">
+            </div>
         </div>
     </div>
 </div>
@@ -142,6 +168,15 @@
         admin_id: document.getElementById('admin_id')
     };
 
+    const llmFields = {
+        provider_key: document.getElementById('llm_provider_key'),
+        base_url: document.getElementById('llm_base_url'),
+        api_key: document.getElementById('llm_api_key'),
+        model: document.getElementById('llm_model'),
+        use_responses_mode: document.getElementById('llm_use_responses_mode'),
+        enabled: document.getElementById('llm_enabled')
+    };
+
     const toast = document.getElementById('toast');
     const btnSave = document.getElementById('btn-save');
     const btnRefresh = document.getElementById('btn-refresh');
@@ -154,6 +189,20 @@
 
     function getToken() {
         return localStorage.getItem(TOKEN_KEY);
+    }
+
+
+    function validateLlmBaseUrl() {
+        const value = (llmFields.base_url.value || '').trim();
+        const warning = document.getElementById('llm_base_url_warning');
+        if (!warning) return;
+        if (value.endsWith('/v1')) {
+            warning.textContent = '提示：检测到 /v1。请使用根地址，不要手动追加 /v1。';
+            warning.style.color = '#b45309';
+        } else {
+            warning.textContent = '提示：不要手动追加 /v1，网关重定向后会自动带上。';
+            warning.style.color = '';
+        }
     }
 
     function redirectToLogin() {
@@ -188,6 +237,23 @@
         fields.target_chat_ids.value = data.target_chat_ids_text ?? '';
         fields.web_tg_session.value = data.web_tg_session ?? '';
         fields.admin_id.value = data.admin_id ?? '';
+
+        const llmResp = await fetch('/api/settings/llm', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+        if (llmResp.ok) {
+            const llmPayload = await llmResp.json();
+            const llmData = llmPayload.data || {};
+            llmFields.provider_key.value = llmData.provider_key ?? 'local-ai';
+            llmFields.base_url.value = llmData.base_url ?? '';
+            llmFields.api_key.value = llmData.api_key ?? '';
+            llmFields.model.value = llmData.model ?? '';
+            llmFields.use_responses_mode.value = llmData.use_responses_mode ?? 'auto';
+            llmFields.enabled.value = llmData.enabled ? 'true' : 'false';
+            validateLlmBaseUrl();
+        }
     }
 
     async function saveSettings() {
@@ -221,6 +287,27 @@
             return;
         }
 
+        const llmForm = new FormData();
+        llmForm.append('provider_key', llmFields.provider_key.value.trim());
+        llmForm.append('base_url', llmFields.base_url.value.trim());
+        llmForm.append('api_key', llmFields.api_key.value.trim());
+        llmForm.append('model', llmFields.model.value.trim());
+        llmForm.append('use_responses_mode', llmFields.use_responses_mode.value.trim());
+        llmForm.append('enabled', llmFields.enabled.value.trim());
+
+        const llmSaveResp = await fetch('/api/settings/llm', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            body: llmForm
+        });
+        if (!llmSaveResp.ok) {
+            const llmPayload = await llmSaveResp.json().catch(() => ({}));
+            showToast(llmPayload.detail || 'LLM 设置保存失败');
+            return;
+        }
+
         const payload = await resp.json().catch(() => ({}));
         showToast(payload.message || '已保存');
         await loadSettings();
@@ -228,6 +315,7 @@
 
     btnSave.addEventListener('click', saveSettings);
     btnRefresh.addEventListener('click', loadSettings);
+    llmFields.base_url.addEventListener('input', validateLlmBaseUrl);
 
     loadSettings();
 </script>

@@ -1,50 +1,61 @@
-# Telegram Channel Manager Bot
+<h1 align="center">Telegram Channel Manager Bot</h1>
 
-![Overview Dashboard](docs/ui/dashboard-v4.png)
+<p align="center">
+<a href="https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/releases"><img alt="Release" src="https://img.shields.io/github/v/release/leduchuong48-byte/telegram_chanel_manager_bot?display_name=tag"></a>
+<a href="https://hub.docker.com/r/leduchuong/telegram_mediachanel_manager_bot"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/leduchuong/telegram_mediachanel_manager_bot?logo=docker"></a>
+<a href="https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/leduchuong48-byte/telegram_chanel_manager_bot"></a>
+<a href="https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/leduchuong48-byte/telegram_chanel_manager_bot"></a>
+</p>
 
-[![Docker Pulls](https://img.shields.io/docker/pulls/leduchuong/telegram_mediachanel_manager_bot?logo=docker&label=Docker%20Pulls&style=flat-square)](https://hub.docker.com/r/leduchuong/telegram_mediachanel_manager_bot)
-[![GitHub Stars](https://img.shields.io/github/stars/leduchuong48-byte/telegram_chanel_manager_bot?style=flat-square)](https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/leduchuong48-byte/telegram_chanel_manager_bot?style=flat-square)](https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/network/members)
-[![GitHub Issues](https://img.shields.io/github/issues/leduchuong48-byte/telegram_chanel_manager_bot?style=flat-square)](https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/issues)
-[![License](https://img.shields.io/github/license/leduchuong48-byte/telegram_chanel_manager_bot?style=flat-square)](https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/blob/main/LICENSE)
-[![Build: Passing](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](#)
-[![Platform: ARM64/AMD64](https://img.shields.io/badge/Platform-ARM64%2FAMD64-blue.svg)](#)
+<h3 align="center">
+  <a href="README.md">中文</a><span> · </span>
+  <a href="https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/issues">Report Bug</a>
+  <span> · </span>
+  <a href="https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/discussions">Discussions</a>
+</h3>
 
-[中文](README.md)
+## Overview
 
-> Better alternative to legacy admin bot panel for E-ink devices.
+Telegram Channel Manager Bot is a self-hosted Telegram operations backend for cleanup workflows, task tracking, tag maintenance, controller management, and diagnostics.
 
-Telegram Channel Manager Bot is a self-hosted operations backend for Telegram channels/groups, combining media dedupe, cleaner workflows, tag maintenance, controller management, and Web Admin tooling.
+## Interface
 
-## Why this tool?
+### Web Admin (4.0)
 
-Version `3.5` already delivered core admin features, but operational workflows became fragmented as cleaner jobs, task tracking, and permission boundaries grew more complex. `4.0` is a major console redesign focused on clarity, operator speed, and diagnostics.
+> Version 4.0 ships a major UI redesign.
 
-## 4.0 vs 3.5 (Major Upgrade)
+![Dashboard](https://raw.githubusercontent.com/leduchuong48-byte/telegram_chanel_manager_bot/main/docs/ui/dashboard-v4.png)
+![Task Center](https://raw.githubusercontent.com/leduchuong48-byte/telegram_chanel_manager_bot/main/docs/ui/task-center-v4.png)
+![Cleaner](https://raw.githubusercontent.com/leduchuong48-byte/telegram_chanel_manager_bot/main/docs/ui/cleaner-v4.png)
+![Tags](https://raw.githubusercontent.com/leduchuong48-byte/telegram_chanel_manager_bot/main/docs/ui/tags-v4.png)
+![Controllers](https://raw.githubusercontent.com/leduchuong48-byte/telegram_chanel_manager_bot/main/docs/ui/controllers-v4.png)
 
-- New operations overview dashboard with clearer state/risk/action hierarchy.
-- New task result center to read outcome, cause, and evidence in one place.
-- Cleaner/Tools/Tags workflows now follow a more consistent operations path.
-- Identity boundaries are clearer: Web users, Telegram controllers, execution session.
-- Reworked tag workbench better suited for long-term maintenance.
+## Support Matrix
 
-## UI Preview (New 4.0 UI)
+| Category | Support |
+|---|---|
+| Runtime | Web Admin + Telegram controller workflow |
+| Core Use Cases | Cleanup, task diagnostics, tag maintenance, permission boundaries |
+| Deployment | Docker / Docker Compose / NAS / Portainer |
 
-![Dashboard](docs/ui/dashboard-v4.png)
-![Task Center](docs/ui/task-center-v4.png)
-![Cleaner](docs/ui/cleaner-v4.png)
-![Tags](docs/ui/tags-v4.png)
-![Controllers](docs/ui/controllers-v4.png)
+## Installation
 
-## ⚡️ Quick Start (Run in 3 seconds)
+```bash
+git clone https://github.com/leduchuong48-byte/telegram_chanel_manager_bot.git
+cd telegram_chanel_manager_bot
+cp .env.example .env
+cp config.json.example config.json
+```
+
+## Docker
+
+```bash
+docker pull leduchuong/telegram_mediachanel_manager_bot:latest
+```
 
 ```bash
 docker run -d --name telegram_mediachanel_manager_bot --restart unless-stopped -p 1009:8000 --env-file .env -v $(pwd)/config.json:/app/config.json -v $(pwd)/data:/app/data -v $(pwd)/sessions:/app/sessions -v $(pwd)/backups:/app/backups leduchuong/telegram_mediachanel_manager_bot:latest
 ```
-
-## Docker Compose (Portainer / NAS ready)
-
-Copy this into Portainer stacks and hit Deploy. Done.
 
 ```yaml
 services:
@@ -63,13 +74,23 @@ services:
       - ./backups:/app/backups
 ```
 
-## Why upgrade to 4.0
+## Configuration
 
-Upgrade from `3.5` to `4.0` is strongly recommended. The value is not just visual polish: the new release significantly improves operational clarity, task diagnostics, and permission boundary management.
+- Runtime config: `config.json`
+- Environment: `.env`
+- Configure Web user + execution session before production operations.
 
-## Where to get help
+## Upgrade Notes (4.0 vs 3.5)
+
+- Console information architecture redesigned.
+- New task result center (`outcome -> cause -> evidence`).
+- Unified workflows across Cleaner / Tags / Controllers.
+- Upgrade from 3.5 to 4.0 is recommended.
+
+## Support & Contribution
 
 - Issues: https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/issues
+- Discussions: https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/discussions
 
 ## Disclaimer
 

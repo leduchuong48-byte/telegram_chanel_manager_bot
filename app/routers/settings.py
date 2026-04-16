@@ -1,6 +1,8 @@
 """Settings API routes."""
 
 import copy
+import json
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, status
@@ -10,10 +12,13 @@ from app.core.config_manager import ConfigManager
 from app.core.dependencies import get_current_user
 from app.core.models import MessageResponse
 from app.core.telethon_runtime import get_target_chat_tokens, normalize_target_chat_tokens
+from tg_media_dedupe_bot.db import Database
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 TOKEN_MASK = "*****"
+_BASE_DIR = Path(__file__).resolve().parents[2]
+_PROVIDER_SECRETS_DIR = _BASE_DIR / "data" / "provider_secrets"
 
 # Global config manager instance
 _config_manager: ConfigManager | None = None
@@ -50,6 +55,46 @@ def _clean(value: str | None) -> str:
         return ""
     return value.strip()
 
+
+
+
+def _resolve_db_path(config: dict[str, Any]) -> Path:
+    db_cfg = config.get("database", {}) if isinstance(config, dict) else {}
+    if not isinstance(db_cfg, dict):
+        db_cfg = {}
+    raw = str(db_cfg.get("path") or "./data/bot.db").strip() or "./data/bot.db"
+    return Path(raw).expanduser()
+
+
+def _provider_secret_path(provider_key: str) -> Path:
+    key = str(provider_key or "").strip().lower()
+    return _PROVIDER_SECRETS_DIR / f"{key}.json"
+
+
+def _read_provider_secret(provider_key: str) -> dict[str, Any]:
+    path = _provider_secret_path(provider_key)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _write_provider_secret(*, provider_key: str, api_key: str, base_url: str, model: str) -> None:
+    _PROVIDER_SECRETS_DIR.mkdir(parents=True, exist_ok=True)
+    path = _provider_secret_path(provider_key)
+    payload = {
+        "provider_key": str(provider_key).strip().lower(),
+        "api_key": str(api_key).strip(),
+        "base_url": str(base_url).strip(),
+        "model": str(model).strip(),
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
 
 @router.get("/bot", response_model=BotSettingsResponse)
 async def get_bot_settings(
@@ -132,3 +177,101 @@ async def update_bot_settings(
         )
 
     return MessageResponse(success=True, message=message)
+
+
+class LlmSettingsResponse(BaseModel):
+    data: dict[str, Any]
+
+
+@router.get("/llm", response_model=LlmSettingsResponse)
+async def get_llm_settings(
+    _: Annotated[str, Depends(get_current_user)],
+) -> LlmSettingsResponse:
+    config_manager = _get_config_manager()
+    config = config_manager.get_config()
+    db_path = _resolve_db_path(config)
+    db = Database(db_path)
+    try:
+        provider = db.get_provider(provider_key="local-ai")
+    finally:
+        db.close()
+
+    if provider is None:
+        provider = {
+            "provider_key": "local-ai",
+            "base_url": "",
+            "default_model": "",
+            "use_responses_mode": "auto",
+            "enabled": True,
+        }
+    secret = _read_provider_secret("local-ai")
+    data = {
+        "provider_key": provider.get("provider_key", "local-ai"),
+        "base_url": provider.get("base_url", ""),
+        "model": provider.get("default_model", ""),
+        "use_responses_mode": provider.get("use_responses_mode", "auto"),
+        "enabled": bool(provider.get("enabled", True)),
+        "api_key": TOKEN_MASK if secret.get("api_key") else "",
+    }
+    return LlmSettingsResponse(data=data)
+
+
+@router.post("/llm", response_model=MessageResponse)
+async def update_llm_settings(
+    provider_key: Annotated[str | None, Form()] = None,
+    base_url: Annotated[str | None, Form()] = None,
+    api_key: Annotated[str | None, Form()] = None,
+    model: Annotated[str | None, Form()] = None,
+    use_responses_mode: Annotated[str | None, Form()] = None,
+    enabled: Annotated[str | None, Form()] = None,
+    _: Annotated[str, Depends(get_current_user)] = None,
+) -> MessageResponse:
+    config_manager = _get_config_manager()
+    config = config_manager.get_config()
+    db_path = _resolve_db_path(config)
+
+    key = _clean(provider_key) or "local-ai"
+    key = key.lower()
+    next_base_url = _clean(base_url)
+    next_model = _clean(model)
+    mode = _clean(use_responses_mode) or "auto"
+    enabled_bool = str(enabled or "1").strip().lower() not in {"0", "false", "off"}
+
+    db = Database(db_path)
+    try:
+        existing = db.get_provider(provider_key=key)
+        if existing is None:
+            db.upsert_provider(
+                provider_key=key,
+                display_name=key,
+                provider_type="openai_compatible",
+                base_url=next_base_url,
+                enabled=enabled_bool,
+                use_responses_mode=mode,
+                default_model=next_model,
+            )
+        else:
+            db.upsert_provider(
+                provider_key=key,
+                display_name=str(existing.get("display_name") or key),
+                provider_type=str(existing.get("provider_type") or "openai_compatible"),
+                base_url=next_base_url or str(existing.get("base_url") or ""),
+                enabled=enabled_bool,
+                use_responses_mode=mode,
+                default_model=next_model or str(existing.get("default_model") or ""),
+            )
+        if next_model:
+            db.upsert_model(provider_key=key, model_id=next_model, enabled=True, source="settings")
+    finally:
+        db.close()
+
+    api_key_value = _clean(api_key)
+    if api_key_value and api_key_value != TOKEN_MASK:
+        _write_provider_secret(
+            provider_key=key,
+            api_key=api_key_value,
+            base_url=next_base_url,
+            model=next_model,
+        )
+
+    return MessageResponse(success=True, message="LLM 设置已更新")

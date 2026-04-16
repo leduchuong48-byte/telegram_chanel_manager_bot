@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+
+{% block title %}Tag Cleanup{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <h2>Tag Cleanup</h2>
+  <p class="text-muted">One-shot tag cleanup workspace.</p>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <label for="tagsInput" class="form-label">Tags (one per line)</label>
+      <textarea id="tagsInput" class="form-control" rows="8" placeholder="AI绘图
+AI作图
+旧标签"></textarea>
+      <div class="mt-3 d-flex gap-2 flex-wrap">
+        <button id="previewBtn" class="btn btn-primary">Generate Suggestions</button>
+        <button id="loadSessionBtn" class="btn btn-outline-secondary">Load Session</button>
+        <button id="acceptSelectedBtn" class="btn btn-outline-success">Accept Selected</button>
+        <button id="rejectSelectedBtn" class="btn btn-outline-danger">Reject Selected</button>
+        <button id="editSelectedBtn" class="btn btn-outline-primary">Edit Selected</button>
+        <button id="applyDryRunBtn" class="btn btn-warning">Dry Run Apply</button>
+        <button id="applyWriteBtn" class="btn btn-danger">Apply (Write)</button>
+        <button id="exportJsonBtn" class="btn btn-info">Export JSON</button>
+      </div>
+      <div id="sessionInfo" class="mt-2 text-muted"></div>
+      <div class="row g-2 mt-2">
+        <div class="col-md-4">
+          <label class="form-label" for="actionFilter">Action Filter</label>
+          <select id="actionFilter" class="form-select">
+            <option value="">All</option>
+            <option value="rename">rename</option>
+            <option value="merge">merge</option>
+            <option value="deprecate">deprecate</option>
+            <option value="categorize">categorize</option>
+            <option value="keep">keep</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="decisionFilter">Decision Filter</label>
+          <select id="decisionFilter" class="form-select">
+            <option value="">All</option>
+            <option value="pending">pending</option>
+            <option value="accept">accept</option>
+            <option value="reject">reject</option>
+            <option value="edit_accept">edit_accept</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="confidenceFilter">Min Confidence</label>
+          <input id="confidenceFilter" class="form-control" type="number" min="0" max="1" step="0.05" value="0" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <h5 class="card-title">Suggestions</h5>
+      <div class="table-responsive">
+        <table class="table table-sm" id="suggestionsTable">
+          <thead>
+            <tr>
+              <th><input id="selectAll" type="checkbox" /></th>
+              <th>Item</th>
+              <th>Source</th>
+              <th>Action</th>
+              <th>Target</th>
+              <th>Confidence</th>
+              <th>Decision</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const tagsInput = document.getElementById('tagsInput');
+  const previewBtn = document.getElementById('previewBtn');
+  const loadSessionBtn = document.getElementById('loadSessionBtn');
+  const acceptSelectedBtn = document.getElementById('acceptSelectedBtn');
+  const rejectSelectedBtn = document.getElementById('rejectSelectedBtn');
+  const editSelectedBtn = document.getElementById('editSelectedBtn');
+  const applyDryRunBtn = document.getElementById('applyDryRunBtn');
+  const applyWriteBtn = document.getElementById('applyWriteBtn');
+  const exportJsonBtn = document.getElementById('exportJsonBtn');
+  const selectAll = document.getElementById('selectAll');
+  const tableBody = document.querySelector('#suggestionsTable tbody');
+  const sessionInfo = document.getElementById('sessionInfo');
+  const actionFilter = document.getElementById('actionFilter');
+  const decisionFilter = document.getElementById('decisionFilter');
+  const confidenceFilter = document.getElementById('confidenceFilter');
+
+  let currentSessionId = '';
+  let currentItems = [];
+
+  function selectedIds() {
+    const checks = tableBody.querySelectorAll('input[data-item-id]:checked');
+    return Array.from(checks).map((el) => el.getAttribute('data-item-id'));
+  }
+
+  function shouldShow(item) {
+    const action = (actionFilter.value || '').trim();
+    const decision = (decisionFilter.value || '').trim();
+    const minConf = Number(confidenceFilter.value || 0);
+    if (action && item.suggested_action !== action) return false;
+    if (decision && (item.decision || 'pending') !== decision) return false;
+    if (Number(item.confidence || 0) < minConf) return false;
+    return true;
+  }
+
+  function renderItems(items) {
+    currentItems = items || [];
+    tableBody.innerHTML = '';
+    for (const item of currentItems) {
+      if (!shouldShow(item)) continue;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="checkbox" data-item-id="${item.item_id}" /></td>
+        <td>${item.item_id}</td>
+        <td>${item.source_tag}</td>
+        <td>${item.suggested_action}</td>
+        <td>${item.suggested_target_tag || ''}</td>
+        <td>${item.confidence}</td>
+        <td>${item.decision || 'pending'}</td>
+      `;
+      tableBody.appendChild(tr);
+    }
+  }
+
+  async function doPreview() {
+    const tags = tagsInput.value
+      .split(/
++/)
+      .map((v) => v.trim())
+      .filter(Boolean)
+      .map((tag) => ({ tag, count: 0, samples: [], aliases: [] }));
+    if (!tags.length) {
+      sessionInfo.textContent = 'Input tags required';
+      return;
+    }
+    const resp = await fetch('/api/tag-cleanup/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_type: 'manual_input', tags }),
+    });
+    if (!resp.ok) {
+      sessionInfo.textContent = 'Preview failed';
+      return;
+    }
+    const data = await resp.json();
+    currentSessionId = data.session_id;
+    sessionInfo.textContent = `Session: ${data.session_id} | status: ${data.status} | suggestions: ${data.summary.total_suggestions}`;
+    renderItems(data.items || []);
+  }
+
+  async function loadSession() {
+    if (!currentSessionId) {
+      sessionInfo.textContent = 'No current session id';
+      return;
+    }
+    const resp = await fetch(`/api/tag-cleanup/session/${encodeURIComponent(currentSessionId)}`);
+    if (!resp.ok) {
+      sessionInfo.textContent = 'Load session failed';
+      return;
+    }
+    const data = await resp.json();
+    sessionInfo.textContent = `Session: ${data.session_id} | status: ${data.status} | accepted: ${data.summary.accepted} | pending: ${data.summary.pending}`;
+    renderItems(data.items || []);
+  }
+
+  async function batchDecision(decision) {
+    if (!currentSessionId) {
+      sessionInfo.textContent = 'No current session id';
+      return;
+    }
+    const ids = selectedIds();
+    if (!ids.length) {
+      sessionInfo.textContent = 'No rows selected';
+      return;
+    }
+    const decisions = ids.map((id) => {
+      const item = currentItems.find((x) => x.item_id === id) || {};
+      return {
+        item_id: id,
+        decision,
+        final_action: item.suggested_action,
+        final_target_tag: item.suggested_target_tag || '',
+      };
+    });
+    const resp = await fetch('/api/tag-cleanup/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: currentSessionId, decisions, apply_mode: 'dry_run' }),
+    });
+    if (!resp.ok) {
+      sessionInfo.textContent = 'Batch decision failed';
+      return;
+    }
+    await loadSession();
+  }
+
+  async function dryRunApply() {
+    if (!currentSessionId) {
+      sessionInfo.textContent = 'No current session id';
+      return;
+    }
+    const resp = await fetch('/api/tag-cleanup/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: currentSessionId, decisions: [], apply_mode: 'dry_run' }),
+    });
+    if (!resp.ok) {
+      sessionInfo.textContent = 'Dry run failed';
+      return;
+    }
+    const data = await resp.json();
+    sessionInfo.textContent = `Dry run ready | accepted=${data.summary.accepted} rejected=${data.summary.rejected}`;
+  }
+
+
+
+  async function writeApply() {
+    if (!currentSessionId) {
+      sessionInfo.textContent = 'No current session id';
+      return;
+    }
+    const token = window.prompt('Type APPLY to confirm write mode:', '');
+    if (token === null) {
+      return;
+    }
+    const resp = await fetch('/api/tag-cleanup/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: currentSessionId,
+        decisions: [],
+        apply_mode: 'write',
+        confirm_token: token,
+      }),
+    });
+    if (!resp.ok) {
+      sessionInfo.textContent = 'Write apply blocked or failed';
+      return;
+    }
+    const data = await resp.json();
+    sessionInfo.textContent = `Applied | accepted=${data.summary.accepted} rejected=${data.summary.rejected}`;
+    await loadSession();
+  }
+
+  async function exportJson() {
+    if (!currentSessionId) {
+      sessionInfo.textContent = 'No current session id';
+      return;
+    }
+    const resp = await fetch('/api/tag-cleanup/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: currentSessionId, format: 'json', export_type: 'final_mapping' }),
+    });
+    if (!resp.ok) {
+      sessionInfo.textContent = 'Export failed';
+      return;
+    }
+    const data = await resp.json();
+    sessionInfo.textContent = `Exported ${data.content.length} rows to ${data.filename}`;
+  }
+
+  previewBtn.addEventListener('click', doPreview);
+  loadSessionBtn.addEventListener('click', loadSession);
+  acceptSelectedBtn.addEventListener('click', () => batchDecision('accept'));
+  rejectSelectedBtn.addEventListener('click', () => batchDecision('reject'));
+  editSelectedBtn.addEventListener('click', async () => {
+    if (!currentSessionId) {
+      sessionInfo.textContent = 'No current session id';
+      return;
+    }
+    const ids = selectedIds();
+    if (!ids.length) {
+      sessionInfo.textContent = 'No rows selected';
+      return;
+    }
+    const customTarget = window.prompt('Final target tag for selected rows:', '');
+    if (customTarget === null) {
+      return;
+    }
+    const decisions = ids.map((id) => ({
+      item_id: id,
+      decision: 'edit_accept',
+      final_action: 'rename',
+      final_target_tag: String(customTarget || '').trim(),
+    }));
+    const resp = await fetch('/api/tag-cleanup/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: currentSessionId, decisions, apply_mode: 'dry_run' }),
+    });
+    if (!resp.ok) {
+      sessionInfo.textContent = 'Edit selected failed';
+      return;
+    }
+    await loadSession();
+  });
+  applyDryRunBtn.addEventListener('click', dryRunApply);
+  applyWriteBtn.addEventListener('click', writeApply);
+  exportJsonBtn.addEventListener('click', exportJson);
+  actionFilter.addEventListener('change', () => renderItems(currentItems));
+  decisionFilter.addEventListener('change', () => renderItems(currentItems));
+  confidenceFilter.addEventListener('input', () => renderItems(currentItems));
+
+  selectAll.addEventListener('change', () => {
+    const checks = tableBody.querySelectorAll('input[data-item-id]');
+    for (const c of checks) c.checked = selectAll.checked;
+  });
+})();
+</script>
+{% endblock %}

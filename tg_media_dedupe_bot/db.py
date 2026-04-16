@@ -135,6 +135,95 @@ class Database:
 
             self._conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS providers (
+                  provider_key TEXT NOT NULL PRIMARY KEY,
+                  display_name TEXT NOT NULL,
+                  provider_type TEXT NOT NULL,
+                  base_url TEXT NOT NULL,
+                  enabled INTEGER NOT NULL DEFAULT 1,
+                  use_responses_mode TEXT NOT NULL DEFAULT 'auto',
+                  default_model TEXT NOT NULL DEFAULT '',
+                  last_test_status TEXT NOT NULL DEFAULT '',
+                  last_test_at INTEGER NOT NULL DEFAULT 0,
+                  last_probe_status TEXT NOT NULL DEFAULT '',
+                  last_probe_at INTEGER NOT NULL DEFAULT 0,
+                  supports_responses INTEGER NOT NULL DEFAULT 0,
+                  capabilities_json TEXT NOT NULL DEFAULT '{}',
+                  created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL
+                );
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_providers_enabled_updated
+                ON providers(enabled, updated_at DESC, provider_key ASC);
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS models (
+                  provider_key TEXT NOT NULL,
+                  model_id TEXT NOT NULL,
+                  enabled INTEGER NOT NULL DEFAULT 1,
+                  source TEXT NOT NULL DEFAULT 'sync',
+                  created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL,
+                  PRIMARY KEY(provider_key, model_id),
+                  FOREIGN KEY(provider_key) REFERENCES providers(provider_key) ON DELETE CASCADE
+                );
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_models_enabled_updated
+                ON models(enabled, updated_at DESC, provider_key ASC, model_id ASC);
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS model_sync_runs (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  trigger_source TEXT NOT NULL,
+                  synced_count INTEGER NOT NULL DEFAULT 0,
+                  created_at INTEGER NOT NULL
+                );
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ai_request_events (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  provider_key TEXT NOT NULL,
+                  model_key TEXT NOT NULL,
+                  success INTEGER NOT NULL DEFAULT 0,
+                  fallback_used INTEGER NOT NULL DEFAULT 0,
+                  downgrade_used INTEGER NOT NULL DEFAULT 0,
+                  latency_ms INTEGER NOT NULL DEFAULT 0,
+                  created_at INTEGER NOT NULL
+                );
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_ai_request_events_created
+                ON ai_request_events(created_at DESC);
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_ai_request_events_provider_created
+                ON ai_request_events(provider_key, created_at DESC);
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_ai_request_events_model_created
+                ON ai_request_events(model_key, created_at DESC);
+                """
+            )
+            self._conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS telegram_controllers (
                   user_id INTEGER NOT NULL PRIMARY KEY,
                   display_name TEXT NOT NULL DEFAULT '',
@@ -344,6 +433,7 @@ class Database:
             self._ensure_telegram_controllers_schema()
             self._ensure_job_progress_schema()
             self._ensure_cleaner_control_plane_schema()
+            self._ensure_provider_registry_schema()
 
     def _ensure_tag_library_schema(self) -> None:
         rows = self._conn.execute("PRAGMA table_info(tag_library)").fetchall()
@@ -473,6 +563,31 @@ class Database:
             """
         )
 
+
+
+    def _ensure_provider_registry_schema(self) -> None:
+        rows = self._conn.execute("PRAGMA table_info(providers)").fetchall()
+        if not rows:
+            return
+        columns = {str(row["name"]) for row in rows}
+        migrations: list[tuple[str, str]] = [
+            ("use_responses_mode", "ALTER TABLE providers ADD COLUMN use_responses_mode TEXT NOT NULL DEFAULT 'auto'"),
+            ("default_model", "ALTER TABLE providers ADD COLUMN default_model TEXT NOT NULL DEFAULT ''"),
+            ("last_test_status", "ALTER TABLE providers ADD COLUMN last_test_status TEXT NOT NULL DEFAULT ''"),
+            ("last_test_at", "ALTER TABLE providers ADD COLUMN last_test_at INTEGER NOT NULL DEFAULT 0"),
+            ("last_probe_status", "ALTER TABLE providers ADD COLUMN last_probe_status TEXT NOT NULL DEFAULT ''"),
+            ("last_probe_at", "ALTER TABLE providers ADD COLUMN last_probe_at INTEGER NOT NULL DEFAULT 0"),
+            ("supports_responses", "ALTER TABLE providers ADD COLUMN supports_responses INTEGER NOT NULL DEFAULT 0"),
+            ("capabilities_json", "ALTER TABLE providers ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '{}'"),
+        ]
+        for column, sql in migrations:
+            if column in columns:
+                continue
+            try:
+                self._conn.execute(sql)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
 
     def _ensure_managed_chats_schema(self) -> None:
         rows = self._conn.execute("PRAGMA table_info(managed_chats)").fetchall()
@@ -1625,6 +1740,335 @@ class Database:
             "UPDATE telegram_controllers SET is_primary=1 WHERE user_id=?",
             (chosen,),
         )
+
+    def list_providers(self, *, enabled_only: bool = False) -> list[dict[str, str | bool | int]]:
+        where_sql = "WHERE enabled = 1" if enabled_only else ""
+        rows = self._conn.execute(
+            f"""
+            SELECT provider_key, display_name, provider_type, base_url, enabled, use_responses_mode, default_model,
+                   last_test_status, last_test_at, last_probe_status, last_probe_at, supports_responses,
+                   capabilities_json, created_at, updated_at
+            FROM providers
+            {where_sql}
+            ORDER BY enabled DESC, updated_at DESC, provider_key ASC
+            """
+        ).fetchall()
+        result: list[dict[str, str | bool | int]] = []
+        for row in rows:
+            result.append(
+                {
+                    "provider_key": str(row["provider_key"]),
+                    "display_name": str(row["display_name"] or ""),
+                    "provider_type": str(row["provider_type"] or ""),
+                    "base_url": str(row["base_url"] or ""),
+                    "enabled": int(row["enabled"]) == 1,
+                    "use_responses_mode": str(row["use_responses_mode"] or "auto"),
+                    "default_model": str(row["default_model"] or ""),
+                    "last_test_status": str(row["last_test_status"] or ""),
+                    "last_test_at": int(row["last_test_at"] or 0),
+                    "last_probe_status": str(row["last_probe_status"] or ""),
+                    "last_probe_at": int(row["last_probe_at"] or 0),
+                    "supports_responses": int(row["supports_responses"] or 0) == 1,
+                    "capabilities_json": str(row["capabilities_json"] or "{}"),
+                    "created_at": int(row["created_at"] or 0),
+                    "updated_at": int(row["updated_at"] or 0),
+                }
+            )
+        return result
+
+    def get_provider(self, *, provider_key: str) -> dict[str, str | bool | int] | None:
+        row = self._conn.execute(
+            """
+            SELECT provider_key, display_name, provider_type, base_url, enabled, use_responses_mode, default_model,
+                   last_test_status, last_test_at, last_probe_status, last_probe_at, supports_responses,
+                   capabilities_json, created_at, updated_at
+            FROM providers
+            WHERE provider_key=?
+            """,
+            (str(provider_key).strip(),),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "provider_key": str(row["provider_key"]),
+            "display_name": str(row["display_name"] or ""),
+            "provider_type": str(row["provider_type"] or ""),
+            "base_url": str(row["base_url"] or ""),
+            "enabled": int(row["enabled"]) == 1,
+            "use_responses_mode": str(row["use_responses_mode"] or "auto"),
+            "default_model": str(row["default_model"] or ""),
+            "last_test_status": str(row["last_test_status"] or ""),
+            "last_test_at": int(row["last_test_at"] or 0),
+            "last_probe_status": str(row["last_probe_status"] or ""),
+            "last_probe_at": int(row["last_probe_at"] or 0),
+            "supports_responses": int(row["supports_responses"] or 0) == 1,
+            "capabilities_json": str(row["capabilities_json"] or "{}"),
+            "created_at": int(row["created_at"] or 0),
+            "updated_at": int(row["updated_at"] or 0),
+        }
+
+    def upsert_provider(
+        self,
+        *,
+        provider_key: str,
+        display_name: str,
+        provider_type: str,
+        base_url: str,
+        enabled: bool,
+        use_responses_mode: str,
+        default_model: str,
+    ) -> None:
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO providers(
+                  provider_key, display_name, provider_type, base_url, enabled,
+                  use_responses_mode, default_model, last_test_status, last_test_at,
+                  last_probe_status, last_probe_at, supports_responses, capabilities_json,
+                  created_at, updated_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?, '', 0, '', 0, 0, '{}', ?, ?)
+                ON CONFLICT(provider_key) DO UPDATE SET
+                  display_name=excluded.display_name,
+                  provider_type=excluded.provider_type,
+                  base_url=excluded.base_url,
+                  enabled=excluded.enabled,
+                  use_responses_mode=excluded.use_responses_mode,
+                  default_model=excluded.default_model,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    str(provider_key).strip(),
+                    str(display_name or "").strip(),
+                    str(provider_type or "").strip(),
+                    str(base_url or "").strip(),
+                    int(bool(enabled)),
+                    str(use_responses_mode or "auto").strip(),
+                    str(default_model or "").strip(),
+                    now,
+                    now,
+                ),
+            )
+
+    def mark_provider_test_result(self, *, provider_key: str, status: str) -> None:
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                UPDATE providers
+                SET last_test_status=?, last_test_at=?, updated_at=?
+                WHERE provider_key=?
+                """,
+                (str(status or "").strip(), now, now, str(provider_key).strip()),
+            )
+
+    def mark_provider_probe_result(
+        self,
+        *,
+        provider_key: str,
+        status: str,
+        supports_responses: bool,
+        capabilities_json: str,
+    ) -> None:
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                UPDATE providers
+                SET last_probe_status=?, last_probe_at=?, supports_responses=?, capabilities_json=?, updated_at=?
+                WHERE provider_key=?
+                """,
+                (
+                    str(status or "").strip(),
+                    now,
+                    int(bool(supports_responses)),
+                    str(capabilities_json or "{}"),
+                    now,
+                    str(provider_key).strip(),
+                ),
+            )
+
+    def list_models(
+        self,
+        *,
+        provider_key: str | None = None,
+        enabled_only: bool = False,
+    ) -> list[dict[str, str | bool | int]]:
+        clauses: list[str] = []
+        params: list[object] = []
+        if provider_key:
+            clauses.append("provider_key=?")
+            params.append(str(provider_key).strip())
+        if enabled_only:
+            clauses.append("enabled=1")
+        where_sql = ""
+        if clauses:
+            where_sql = "WHERE " + " AND ".join(clauses)
+        rows = self._conn.execute(
+            f"""
+            SELECT provider_key, model_id, enabled, source, created_at, updated_at
+            FROM models
+            {where_sql}
+            ORDER BY enabled DESC, updated_at DESC, provider_key ASC, model_id ASC
+            """,
+            tuple(params),
+        ).fetchall()
+        result: list[dict[str, str | bool | int]] = []
+        for row in rows:
+            result.append(
+                {
+                    "provider_key": str(row["provider_key"]),
+                    "model_id": str(row["model_id"]),
+                    "enabled": int(row["enabled"]) == 1,
+                    "source": str(row["source"] or "sync"),
+                    "created_at": int(row["created_at"] or 0),
+                    "updated_at": int(row["updated_at"] or 0),
+                }
+            )
+        return result
+
+    def upsert_model(self, *, provider_key: str, model_id: str, enabled: bool, source: str = "sync") -> None:
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO models(provider_key, model_id, enabled, source, created_at, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?)
+                ON CONFLICT(provider_key, model_id) DO UPDATE SET
+                  enabled=excluded.enabled,
+                  source=excluded.source,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    str(provider_key).strip(),
+                    str(model_id).strip(),
+                    int(bool(enabled)),
+                    str(source or "sync").strip(),
+                    now,
+                    now,
+                ),
+            )
+
+    def record_model_sync_run(self, *, trigger_source: str, synced_count: int) -> None:
+        now = int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO model_sync_runs(trigger_source, synced_count, created_at)
+                VALUES(?, ?, ?)
+                """,
+                (str(trigger_source or "manual"), int(synced_count), now),
+            )
+
+    def record_ai_request_event(
+        self,
+        *,
+        provider_key: str,
+        model_key: str,
+        success: bool,
+        fallback_used: bool,
+        downgrade_used: bool,
+        latency_ms: int,
+        created_at: int | None = None,
+    ) -> None:
+        now = int(created_at) if created_at is not None else int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO ai_request_events(
+                  provider_key, model_key, success, fallback_used, downgrade_used, latency_ms, created_at
+                )
+                VALUES(?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(provider_key or "").strip(),
+                    str(model_key or "").strip(),
+                    int(bool(success)),
+                    int(bool(fallback_used)),
+                    int(bool(downgrade_used)),
+                    int(latency_ms),
+                    now,
+                ),
+            )
+
+    def get_ai_request_metrics_by_provider(self, *, since_ts: int) -> dict[str, dict[str, float | int]]:
+        rows = self._conn.execute(
+            """
+            SELECT provider_key,
+                   COUNT(*) AS total,
+                   SUM(success) AS success_count,
+                   AVG(latency_ms) AS avg_latency_ms,
+                   SUM(fallback_used) AS fallback_count,
+                   SUM(downgrade_used) AS downgrade_count
+            FROM ai_request_events
+            WHERE created_at >= ?
+            GROUP BY provider_key
+            """,
+            (int(since_ts),),
+        ).fetchall()
+
+        latency_rows = self._conn.execute(
+            """
+            SELECT provider_key, latency_ms
+            FROM ai_request_events
+            WHERE created_at >= ?
+            ORDER BY provider_key ASC, latency_ms ASC
+            """,
+            (int(since_ts),),
+        ).fetchall()
+        latency_map: dict[str, list[int]] = {}
+        for row in latency_rows:
+            key = str(row["provider_key"])
+            latency_map.setdefault(key, []).append(int(row["latency_ms"] or 0))
+
+        def p95(values: list[int]) -> int:
+            if not values:
+                return 0
+            n = len(values)
+            rank = (95 * n + 99) // 100
+            idx = min(max(rank - 1, 0), n - 1)
+            return int(values[idx])
+
+        result: dict[str, dict[str, float | int]] = {}
+        for row in rows:
+            provider_key = str(row["provider_key"])
+            total = int(row["total"] or 0)
+            success_count = int(row["success_count"] or 0)
+            success_rate = float(success_count / total) if total > 0 else 0.0
+            latencies = latency_map.get(provider_key, [])
+            result[provider_key] = {
+                "request_count": total,
+                "success_rate": success_rate,
+                "avg_latency_ms": int(float(row["avg_latency_ms"] or 0.0)),
+                "p95_latency_ms": p95(latencies),
+                "fallback_count": int(row["fallback_count"] or 0),
+                "downgrade_count": int(row["downgrade_count"] or 0),
+            }
+        return result
+
+    def get_ai_request_metrics_by_model(self, *, since_ts: int) -> dict[str, dict[str, float | int]]:
+        rows = self._conn.execute(
+            """
+            SELECT model_key,
+                   COUNT(*) AS total,
+                   SUM(success) AS success_count
+            FROM ai_request_events
+            WHERE created_at >= ?
+            GROUP BY model_key
+            """,
+            (int(since_ts),),
+        ).fetchall()
+        result: dict[str, dict[str, float | int]] = {}
+        for row in rows:
+            total = int(row["total"] or 0)
+            success_count = int(row["success_count"] or 0)
+            success_rate = float(success_count / total) if total > 0 else 0.0
+            result[str(row["model_key"])] = {
+                "request_count": total,
+                "success_rate": success_rate,
+            }
+        return result
 
     def get_chat_stats(self, chat_id: int) -> dict[str, int]:
         total = self._conn.execute(

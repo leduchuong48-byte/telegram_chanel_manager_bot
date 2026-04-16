@@ -37,9 +37,13 @@ from app.routers import (
     media_filter,
     session,
     settings,
+    providers,
+    models,
     tags,
     tools,
     users,
+    ai_health,
+    tag_cleanup,
     telegram_controllers,
 )
 
@@ -80,11 +84,15 @@ def create_app(
     config_router.set_config_manager(config_manager)
     media_filter.set_config_manager(config_manager)
     settings.set_config_manager(config_manager)
+    providers.set_config_manager(config_manager)
+    models.set_config_manager(config_manager)
     session.set_config_manager(config_manager)
     forwarding.set_config_manager(config_manager)
     tools.set_config_manager(config_manager)
     users.set_config_manager(config_manager)
     telegram_controllers.set_config_manager(config_manager)
+    ai_health.set_config_manager(config_manager)
+    tag_cleanup.set_config_manager(config_manager)
 
     runtime_settings = load_runtime_settings(config_manager.get_config())
     db_config = config_manager.get_config().get("database", {})
@@ -141,12 +149,16 @@ def create_app(
     app.include_router(filters.router)
     app.include_router(media_filter.router)
     app.include_router(settings.router)
+    app.include_router(providers.router)
+    app.include_router(models.router)
     app.include_router(session.router)
     app.include_router(forwarding.router)
     app.include_router(tools.router)
     app.include_router(users.router)
     app.include_router(telegram_controllers.router)
     app.include_router(logs.router)
+    app.include_router(ai_health.router)
+    app.include_router(tag_cleanup.router)
 
 
     # Mount static files
@@ -233,6 +245,15 @@ def create_app(
         return templates.TemplateResponse(
             "dead_letters.html",
             {"request": request, "active_page": "dead_letters"},
+        )
+
+
+    @app.get("/tag_cleanup", response_class=HTMLResponse)
+    async def tag_cleanup_page(request: Request) -> HTMLResponse:
+        """Serve tag cleanup page."""
+        return templates.TemplateResponse(
+            "tag_cleanup.html",
+            {"request": request, "active_page": "tag_cleanup"},
         )
 
     @app.get("/chat_visibility", response_class=HTMLResponse)
