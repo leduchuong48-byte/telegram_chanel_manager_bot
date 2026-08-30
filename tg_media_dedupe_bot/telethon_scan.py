@@ -326,12 +326,13 @@ async def run_scan(
             try:
                 await client.delete_messages(entity, [message_id])
             except Exception as exc:  # noqa: BLE001
-                db.record_deletion_attempt(
+                failure = db.record_deletion_failure(
                     chat_id=chat_id,
                     message_id=message_id,
                     media_key=media_key,
-                    result="failed",
+                    reason=reason,
                     error=str(exc),
+                    detail_prefix="transport=telethon_scan",
                 )
                 result = ScanResult(
                     scanned=result.scanned,
@@ -339,7 +340,14 @@ async def run_scan(
                     deleted=result.deleted,
                     failed=result.failed + 1,
                 )
-                log.exception("delete_failed chat=%s msg=%s reason=%s", chat_id, message_id, reason)
+                log.exception(
+                    "delete_failed chat=%s msg=%s reason=%s category=%s disposition=%s",
+                    chat_id,
+                    message_id,
+                    reason,
+                    failure.category,
+                    failure.disposition,
+                )
                 return
 
             db.record_deletion_attempt(
@@ -473,12 +481,13 @@ async def run_scan(
             try:
                 await client.delete_messages(entity, [delete_id])
             except Exception as exc:  # noqa: BLE001
-                db.record_deletion_attempt(
+                failure = db.record_deletion_failure(
                     chat_id=item.chat_id,
                     message_id=delete_id,
                     media_key=item.media_key,
-                    result="failed",
+                    reason=decision.reason,
                     error=str(exc),
+                    detail_prefix="transport=telethon_scan",
                 )
                 result = ScanResult(
                     scanned=result.scanned,
@@ -486,7 +495,13 @@ async def run_scan(
                     deleted=result.deleted,
                     failed=result.failed + 1,
                 )
-                log.exception("delete_failed chat=%s msg=%s", item.chat_id, delete_id)
+                log.exception(
+                    "delete_failed chat=%s msg=%s category=%s disposition=%s",
+                    item.chat_id,
+                    delete_id,
+                    failure.category,
+                    failure.disposition,
+                )
                 continue
 
             db.record_deletion_attempt(

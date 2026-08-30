@@ -342,11 +342,28 @@
             errorMessage.classList.add('show');
         }
 
-        window.addEventListener('load', () => {
+        window.addEventListener('load', async () => {
             const token = localStorage.getItem('token');
-            if (token) {
-                window.location.href = '/';
+            if (!token) {
+                return;
             }
+
+            try {
+                const resp = await fetch('/api/users/me', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+                if (resp.ok) {
+                    window.location.href = '/';
+                    return;
+                }
+            } catch (error) {
+                // keep user on login page when network check fails
+            }
+
+            localStorage.removeItem('token');
+            localStorage.removeItem('username');
         });
     </script>
 </body>

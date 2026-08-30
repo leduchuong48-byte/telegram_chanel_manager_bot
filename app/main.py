@@ -24,7 +24,10 @@ from app.core.log_manager import (
 )
 from app.core.security import SECRET_KEY, set_secret_key
 from tg_media_dedupe_bot.db import Database
+from tg_media_dedupe_bot.health import run_component_checks
+from tg_media_dedupe_bot.paths import resolve_app_path
 from tg_media_dedupe_bot.pipeline_runtime import PipelineRuntime
+from app.services.forwarding_runtime import UserForwardingRuntime
 
 from app.routers import (
     auth,
@@ -45,6 +48,7 @@ from app.routers import (
     ai_health,
     tag_cleanup,
     telegram_controllers,
+    content_ops,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,7 +69,7 @@ def create_app(
     app = FastAPI(
         title="Admin Panel API",
         description="Configuration management API for Telegram Media Dedup Bot",
-        version="4.0",
+        version="4.1",
     )
 
     # Add CORS middleware
@@ -93,19 +97,24 @@ def create_app(
     telegram_controllers.set_config_manager(config_manager)
     ai_health.set_config_manager(config_manager)
     tag_cleanup.set_config_manager(config_manager)
+    content_ops.set_config_manager(config_manager)
 
     runtime_settings = load_runtime_settings(config_manager.get_config())
     db_config = config_manager.get_config().get("database", {})
-    db_path = db_config.get("path", "./data/bot.db")
+    db_path = resolve_app_path(str(db_config.get("path") or "./data/bot.db"))
     cleaner_runtime = PipelineRuntime(Database(Path(db_path)), worker_count=runtime_settings.pipeline_worker_count)
+    forwarding_user_runtime = UserForwardingRuntime(Database(Path(db_path)))
     cleaner.set_pipeline_runtime(cleaner_runtime)
     cleaner.register_runtime_executors(cleaner_runtime)
+    forwarding.set_runtime(forwarding_user_runtime)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if reload_hook is not None:
             config_manager.register_reload_hook(reload_hook)
+        config_manager.register_reload_hook(forwarding_user_runtime.reload)
         await cleaner_runtime.start()
+        await forwarding_user_runtime.reload(config_manager.get_config())
         await scheduler.start_scheduler(config_manager.get_config())
         set_log_loop(asyncio.get_running_loop())
         root_logger = logging.getLogger()
@@ -135,6 +144,8 @@ def create_app(
             if handler is not None:
                 logging.getLogger().removeHandler(handler)
             await cleaner_runtime.shutdown()
+            await forwarding_user_runtime.shutdown()
+            forwarding_user_runtime.close()
             await scheduler.shutdown_scheduler()
 
     app.router.lifespan_context = lifespan
@@ -159,6 +170,8 @@ def create_app(
     app.include_router(logs.router)
     app.include_router(ai_health.router)
     app.include_router(tag_cleanup.router)
+    app.include_router(tag_cleanup.governance_router)
+    app.include_router(content_ops.router)
 
 
     # Mount static files
@@ -213,6 +226,49 @@ def create_app(
         return templates.TemplateResponse(
             "tags.html",
             {"request": request, "active_page": "tags"},
+        )
+
+
+    @app.get("/content_ops", response_class=HTMLResponse)
+    async def content_ops_page(request: Request) -> HTMLResponse:
+        """Serve content governance workbench page."""
+        return templates.TemplateResponse(
+            "content_ops.html",
+            {"request": request, "active_page": "content_ops"},
+        )
+
+    @app.get("/content_ops_docs", response_class=HTMLResponse)
+    async def content_ops_docs_page(request: Request, doc: str = "design") -> HTMLResponse:
+        """Serve content ops documentation center page."""
+        docs_map = {
+            "design": (
+                "产品与交互设计说明",
+                Path("docs/plans/2026-04-18-ad-scan-cleanup-center-design.md"),
+            ),
+            "ops": (
+                "运营使用手册（V1）",
+                Path("docs/operations/2026-04-18-operations-manual-ad-scan-cleanup-center-v1.md"),
+            ),
+            "release": (
+                "发布说明（面向运营）",
+                Path("docs/release-notes/2026-04-18-content-ops-page-redesign-for-ops.md"),
+            ),
+        }
+        label, rel_path = docs_map.get(doc, docs_map["design"])
+        project_root = Path(getattr(config_manager, "config_path", "config.json")).resolve().parent
+        target = project_root / rel_path
+        if target.exists():
+            content = target.read_text(encoding="utf-8", errors="ignore")
+        else:
+            content = f"文档不存在：{target}"
+        return templates.TemplateResponse(
+            "content_ops_docs.html",
+            {
+                "request": request,
+                "active_page": "content_ops",
+                "doc_label": label,
+                "doc_content": content,
+            },
         )
 
     @app.get("/cleaner", response_class=HTMLResponse)
@@ -331,7 +387,24 @@ def create_app(
     @app.get("/health")
     async def health_check() -> dict:
         """Health check endpoint."""
-        return {"status": "ok", "service": "admin-panel"}
+        result = run_component_checks(include_bot=True)
+        result["service"] = "admin-panel"
+        if cleaner_runtime.is_running:
+            result["components"]["worker"] = {"status": "running", "detail": "pipeline runtime running"}
+        else:
+            result["components"]["worker"] = {"status": "fail", "detail": "pipeline runtime stopped"}
+            result["status"] = "fail"
+        forwarding_status = forwarding_user_runtime.status()
+        if forwarding_status["status"] in {"disabled", "running"}:
+            result["components"]["forwarding_user"] = {
+                **forwarding_status,
+                "status": "ok" if forwarding_status["status"] == "disabled" else "running",
+            }
+        else:
+            result["components"]["forwarding_user"] = forwarding_status
+            if forwarding_status["status"] == "fail":
+                result["status"] = "fail"
+        return result
 
 
     return app

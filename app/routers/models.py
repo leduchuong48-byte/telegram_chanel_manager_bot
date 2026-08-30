@@ -102,6 +102,7 @@ async def sync_models(_: Annotated[str, Depends(get_current_user)]) -> MessageRe
             )
             synced += 1
         db.record_model_sync_run(trigger_source="manual", synced_count=synced)
+        db.record_ai_workflow_event(event_type="batch_job")
     finally:
         db.close()
     return MessageResponse(success=True, message="模型同步完成")

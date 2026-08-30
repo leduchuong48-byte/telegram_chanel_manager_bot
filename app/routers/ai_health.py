@@ -138,6 +138,7 @@ async def get_ai_metrics_summary(
         models = db.list_models(provider_key=None, enabled_only=False)
         provider_event_metrics = db.get_ai_request_metrics_by_provider(since_ts=since_ts)
         model_event_metrics = db.get_ai_request_metrics_by_model(since_ts=since_ts)
+        workflow_metrics = db.get_ai_workflow_metrics(since_ts=since_ts)
     finally:
         db.close()
 
@@ -156,7 +157,6 @@ async def get_ai_metrics_summary(
             request_count = int(metrics.get('request_count') or 0)
             success_rate = float(metrics.get('success_rate') or 0.0)
             avg_latency_ms = int(metrics.get('avg_latency_ms') or 0)
-            p95_latency_ms = int(metrics.get('p95_latency_ms') or avg_latency_ms)
             p95_latency_ms = int(metrics.get('p95_latency_ms') or avg_latency_ms)
             fallback_count = int(metrics.get('fallback_count') or 0)
             downgrade_count = int(metrics.get('downgrade_count') or 0)
@@ -196,10 +196,10 @@ async def get_ai_metrics_summary(
         providers=provider_metrics,
         models=model_metrics,
         workflow=WorkflowMetric(
-            preview_requests=0,
-            batch_jobs=0,
-            review_pending=0,
-            review_approved_rate=0.0,
-            review_rejected_rate=0.0,
+            preview_requests=int(workflow_metrics.get('preview_requests') or 0),
+            batch_jobs=int(workflow_metrics.get('batch_jobs') or 0),
+            review_pending=int(workflow_metrics.get('review_pending') or 0),
+            review_approved_rate=float(workflow_metrics.get('review_approved_rate') or 0.0),
+            review_rejected_rate=float(workflow_metrics.get('review_rejected_rate') or 0.0),
         ),
     )

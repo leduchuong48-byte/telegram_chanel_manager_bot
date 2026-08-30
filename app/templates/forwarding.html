@@ -264,9 +264,9 @@
                 <td>${rule.target_id}</td>
                 <td>${rule.type === 'user_mode' ? '用户模式' : 'Bot 模式'}</td>
                 <td>${optionText}</td>
-                <td><button class="btn" data-id="${rule.source_id}">删除</button></td>
+                <td><button class="btn" data-id="${rule.rule_id}">删除</button></td>
             `;
-            tr.querySelector('button').addEventListener('click', () => deleteRule(rule.source_id));
+            tr.querySelector('button').addEventListener('click', () => deleteRule(rule.rule_id));
             ruleBody.appendChild(tr);
         });
     }
@@ -323,8 +323,8 @@
         await loadRules();
     }
 
-    async function deleteRule(sourceId) {
-        const resp = await fetch(`/api/forwarding/${sourceId}`, {
+    async function deleteRule(ruleId) {
+        const resp = await fetch(`/api/forwarding/rule/${encodeURIComponent(ruleId)}`, {
             method: 'DELETE',
             headers: authHeaders()
         });

@@ -174,6 +174,41 @@
         flex-wrap: wrap;
     }
 
+    .workspace-tabs {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 2px;
+    }
+
+    .workspace-tab-button {
+        border: 1px solid var(--border-soft);
+        background: rgba(255, 255, 255, 0.78);
+        color: var(--text);
+        border-radius: 999px;
+        padding: 8px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all var(--normal) ease;
+    }
+
+    .workspace-tab-button.active {
+        background: var(--accent-soft);
+        border-color: rgba(0, 113, 227, 0.25);
+        color: #0058b9;
+    }
+
+    .workspace-tab-panel {
+        display: none;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .workspace-tab-panel.active {
+        display: flex;
+    }
+
     .sections-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -458,19 +493,112 @@
                     <button class="btn btn-danger" id="deleteGroupBtn">删除组</button>
                 </div>
             </div>
-            <div class="inline-row">
-                <input id="groupNameInput" class="toolbar-input" placeholder="未选择组" value="">
-                <div class="muted" id="groupModeBadge">未选择标签组</div>
+            <div class="workspace-tabs" id="tagsWorkspaceTabs">
+                <button type="button" class="workspace-tab-button active" data-panel="overviewPanel">标签总览</button>
+                <button type="button" class="workspace-tab-button" data-panel="aliasPanel">别名规则</button>
+                <button type="button" class="workspace-tab-button" data-panel="aiCleanupPanel">AI 智能清理</button>
             </div>
-            <div class="section-action-row">
-                <button class="btn btn-primary" id="addSectionBtn">+ 新增分区</button>
-                <span class="muted">点击标签后，在当前分区卡片底部编辑；右侧预览保持固定。</span>
+
+            <div class="workspace-tab-panel active" id="overviewPanel">
+                <div class="inline-row">
+                    <input id="groupNameInput" class="toolbar-input" placeholder="未选择组" value="">
+                    <div class="muted" id="groupModeBadge">未选择标签组</div>
+                </div>
+                <div class="section-action-row">
+                    <button class="btn btn-primary" id="addSectionBtn">+ 新增分区</button>
+                    <span class="muted">点击标签后，在当前分区卡片底部编辑；右侧预览保持固定。</span>
+                </div>
+                <div class="sections-grid" id="sectionsGrid"></div>
+                <div class="raw-panel" id="rawPanel">
+                    <div class="panel-label" style="font-size:14px;">高级模式 / 原始文本</div>
+                    <div class="hint">兼容旧格式。失焦后会尝试回填到分区卡片。</div>
+                    <textarea id="rawTextInput" class="raw-textarea" placeholder="原始标签文本将在此显示"></textarea>
+                </div>
             </div>
-            <div class="sections-grid" id="sectionsGrid"></div>
-            <div class="raw-panel" id="rawPanel">
-                <div class="panel-label" style="font-size:14px;">高级模式 / 原始文本</div>
-                <div class="hint">兼容旧格式。失焦后会尝试回填到分区卡片。</div>
-                <textarea id="rawTextInput" class="raw-textarea" placeholder="原始标签文本将在此显示"></textarea>
+
+            <div class="workspace-tab-panel" id="aliasPanel">
+                <div class="panel-label" style="font-size:14px;">别名规则说明</div>
+                <div class="hint">在“标签总览”中点击标签即可编辑 chat/global 级别重命名规则，右侧 TG 预览会同步展示 alias 生效结果。</div>
+                <div class="hint">建议流程：先在标签总览整理分区与标签，再进入 AI 智能清理批量生成候选规则。</div>
+            </div>
+
+            <div class="workspace-tab-panel" id="aiCleanupPanel">
+                <div class="cleanup-input-wrap">
+                    <label for="tagsInput" class="form-label">标签输入（每行一个）</label>
+                    <textarea id="tagsInput" class="raw-textarea" rows="6" placeholder="內射
+顏射
+調教"></textarea>
+                </div>
+                <div class="editor-actions">
+                    <select id="cleanupImportSource" class="editor-select" style="max-width: 180px;">
+                        <option value="group">导入源: 当前标签组</option>
+                        <option value="section">导入源: 当前分区</option>
+                        <option value="selected">导入源: 当前选中标签</option>
+                    </select>
+                    <select id="cleanupImportSection" class="editor-select" style="max-width: 220px;" disabled>
+                        <option value="">请选择分区</option>
+                    </select>
+                    <button id="importCurrentGroupTagsBtn" class="btn" type="button">导入到输入框</button>
+                    <button id="previewBtn" class="btn btn-primary" type="button">生成 AI 建议</button>
+                    <button id="loadSessionBtn" class="btn" type="button">加载会话</button>
+                    <button id="acceptSelectedBtn" class="btn" type="button">批量接受</button>
+                    <button id="rejectSelectedBtn" class="btn btn-danger" type="button">批量拒绝</button>
+                    <button id="editSelectedBtn" class="btn" type="button">编辑后接受</button>
+                    <button id="applyDryRunBtn" class="btn" type="button">模拟执行</button>
+                    <button id="applyWriteBtn" class="btn btn-danger" type="button">确认写入</button>
+                    <button id="exportJsonBtn" class="btn" type="button">导出 JSON</button>
+                </div>
+                <div class="hint" id="sessionInfo">尚未创建 AI 清理会话</div>
+                <div class="inline-row" style="flex-wrap: wrap;">
+                    <select id="cleanupSessionSelect" class="editor-select" style="max-width: 380px;">
+                        <option value="">最近会话：暂无</option>
+                    </select>
+                    <button id="cleanupSessionRefreshBtn" class="btn" type="button">刷新会话</button>
+                    <button id="cleanupSessionLoadBtn" class="btn" type="button">回载所选会话</button>
+                </div>
+                <div class="preview-card" id="cleanupSummary" style="display: none;">
+                    <div class="panel-label" style="font-size: 13px;">执行摘要</div>
+                    <div class="hint" id="cleanupSummaryText">等待模拟执行结果</div>
+                </div>
+                <div class="inline-row" style="flex-wrap: wrap;">
+                    <select id="actionFilter" class="editor-select" style="max-width: 180px;">
+                        <option value="">动作: 全部</option>
+                        <option value="rename">rename</option>
+                        <option value="merge">merge</option>
+                        <option value="deprecate">deprecate</option>
+                        <option value="categorize">categorize</option>
+                        <option value="keep">keep</option>
+                    </select>
+                    <select id="decisionFilter" class="editor-select" style="max-width: 180px;">
+                        <option value="">决策: 全部</option>
+                        <option value="pending">pending</option>
+                        <option value="accept">accept</option>
+                        <option value="reject">reject</option>
+                        <option value="edit_accept">edit_accept</option>
+                    </select>
+                    <input id="confidenceFilter" class="editor-input" style="max-width: 140px;" type="number" min="0" max="1" step="0.05" value="0" placeholder="最小置信度" />
+                    <input id="categoryL1Filter" class="editor-input" style="max-width: 180px;" type="text" placeholder="一级分类" />
+                    <input id="categoryL2Filter" class="editor-input" style="max-width: 180px;" type="text" placeholder="二级分类" />
+                    <input id="ruleSourceFilter" class="editor-input" style="max-width: 180px;" type="text" placeholder="规则来源" />
+                </div>
+                <div class="table-wrap" style="overflow:auto; border:1px solid var(--border-soft); border-radius: 14px;">
+                    <table class="table" id="suggestionsTable" style="width:100%; min-width: 720px;">
+                        <thead>
+                            <tr>
+                                <th><input id="selectAll" type="checkbox" /></th>
+                                <th>Item</th>
+                                <th>Source</th>
+                                <th>Action</th>
+                                <th>Target</th>
+                                <th>L1</th>
+                                <th>L2</th>
+                                <th>Confidence</th>
+                                <th>Decision</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </section>
@@ -512,6 +640,7 @@
     let selectedTag = null;
     let selectionModeBySection = {};
     let selectedTagsBySection = {};
+    let hasUnsavedGroupChanges = false;
     let previewData = null;
     let currentAliasState = { chat: {}, global: {}, effective: {} };
 
@@ -527,6 +656,45 @@
     const previewMeta = document.getElementById('previewMeta');
     const previewBody = document.getElementById('previewBody');
     const toast = document.getElementById('toast');
+
+    const tabButtons = Array.from(document.querySelectorAll('.workspace-tab-button'));
+    const tabPanels = {
+        overviewPanel: document.getElementById('overviewPanel'),
+        aliasPanel: document.getElementById('aliasPanel'),
+        aiCleanupPanel: document.getElementById('aiCleanupPanel'),
+    };
+
+    const tagsInput = document.getElementById('tagsInput');
+    const cleanupImportSource = document.getElementById('cleanupImportSource');
+    const cleanupImportSection = document.getElementById('cleanupImportSection');
+    const importCurrentGroupTagsBtn = document.getElementById('importCurrentGroupTagsBtn');
+    const previewBtn = document.getElementById('previewBtn');
+    const loadSessionBtn = document.getElementById('loadSessionBtn');
+    const acceptSelectedBtn = document.getElementById('acceptSelectedBtn');
+    const rejectSelectedBtn = document.getElementById('rejectSelectedBtn');
+    const editSelectedBtn = document.getElementById('editSelectedBtn');
+    const applyDryRunBtn = document.getElementById('applyDryRunBtn');
+    const applyWriteBtn = document.getElementById('applyWriteBtn');
+    const exportJsonBtn = document.getElementById('exportJsonBtn');
+    const selectAll = document.getElementById('selectAll');
+    const suggestionsTableBody = document.querySelector('#suggestionsTable tbody');
+    const sessionInfo = document.getElementById('sessionInfo');
+    const cleanupSessionSelect = document.getElementById('cleanupSessionSelect');
+    const cleanupSessionRefreshBtn = document.getElementById('cleanupSessionRefreshBtn');
+    const cleanupSessionLoadBtn = document.getElementById('cleanupSessionLoadBtn');
+    const cleanupSummary = document.getElementById('cleanupSummary');
+    const cleanupSummaryText = document.getElementById('cleanupSummaryText');
+
+    const actionFilter = document.getElementById('actionFilter');
+    const decisionFilter = document.getElementById('decisionFilter');
+    const confidenceFilter = document.getElementById('confidenceFilter');
+    const categoryL1Filter = document.getElementById('categoryL1Filter');
+    const categoryL2Filter = document.getElementById('categoryL2Filter');
+    const ruleSourceFilter = document.getElementById('ruleSourceFilter');
+
+    let cleanupSessionId = '';
+    let cleanupItems = [];
+    let lastDryRunSummary = null;
 
     function showToast(message) {
         toast.textContent = message;
@@ -647,7 +815,37 @@
             groupModeBadge.textContent = '未选择标签组';
             return;
         }
+        if (hasUnsavedGroupChanges) {
+            groupModeBadge.textContent = '未保存变更';
+            return;
+        }
         groupModeBadge.textContent = isNewGroup ? '新建标签组' : '现有标签组';
+    }
+
+    function markGroupDirty() {
+        hasUnsavedGroupChanges = true;
+        updateGroupModeBadge();
+    }
+
+    function markGroupSaved() {
+        hasUnsavedGroupChanges = false;
+        updateGroupModeBadge();
+    }
+
+    function renderLocalPreviewFromSections() {
+        if (!currentGroupName) return;
+        const sections = Array.isArray(currentSections) ? currentSections : [];
+        const blocks = sections.map((section) => {
+            const title = String(section.name || '未分组').trim() || '未分组';
+            const lines = [`-------${title}--------`];
+            (section.tags || []).forEach((tag) => {
+                const clean = normalizeTag(tag);
+                if (clean) lines.push(`#${clean}`);
+            });
+            return lines.join('\n');
+        });
+        previewMeta.textContent = `分区 ${sections.length} · 本地预览（未保存）`;
+        previewBody.textContent = blocks.join('\n\n') || '暂无预览';
     }
 
     function buildFlatTagsFromSections(sections) {
@@ -684,6 +882,7 @@
             : '请选择或新建标签组';
         updateGroupModeBadge();
         syncRawEditor();
+        refreshCleanupImportSectionOptions();
     }
 
     function renderGroups() {
@@ -859,6 +1058,42 @@
         }
     }
 
+    function moveSelectedTagsToSection(sectionIndex, targetIndexRaw) {
+        const selected = getSelectedTags(sectionIndex);
+        if (!selected.length) {
+            showToast('请先选择至少一个标签');
+            return;
+        }
+        const targetIndex = Number(targetIndexRaw);
+        if (!Number.isFinite(targetIndex) || targetIndex < 0 || targetIndex >= currentSections.length) {
+            showToast('请选择目标分区');
+            return;
+        }
+        if (targetIndex === sectionIndex) {
+            showToast('请选择其他分区');
+            return;
+        }
+
+        const sourceTags = currentSections[sectionIndex].tags || [];
+        currentSections[sectionIndex].tags = sourceTags.filter((item) => !selected.includes(item));
+
+        const destination = currentSections[targetIndex].tags || [];
+        selected.forEach((tag) => {
+            if (!destination.includes(tag)) destination.push(tag);
+        });
+        currentSections[targetIndex].tags = destination;
+
+        selectionModeBySection[sectionIndex] = false;
+        selectedTagsBySection[sectionIndex] = [];
+        selectedTag = null;
+
+        markGroupDirty();
+        renderSections();
+        updateSubtitle();
+        renderLocalPreviewFromSections();
+        showToast(`已移动 ${selected.length} 个标签到分区 ${currentSections[targetIndex].name}，请点击“保存目录”持久化`);
+    }
+
     function moveTagToSection(tag, sectionIndex, targetIndexRaw) {
         const targetIndex = Number(targetIndexRaw);
         if (!Number.isFinite(targetIndex) || targetIndex < 0 || targetIndex >= currentSections.length) {
@@ -874,10 +1109,11 @@
         if (!destination.includes(tag)) destination.push(tag);
         currentSections[targetIndex].tags = destination;
         selectedTag = { tag, sectionIndex: targetIndex };
+        markGroupDirty();
         renderSections();
         updateSubtitle();
-        refreshPreview();
-        showToast(`已移动 #${tag} 到分区 ${currentSections[targetIndex].name}`);
+        renderLocalPreviewFromSections();
+        showToast(`已移动 #${tag} 到分区 ${currentSections[targetIndex].name}，请点击“保存目录”持久化`);
     }
 
     function renderSectionEditor(sectionIndex) {
@@ -903,9 +1139,16 @@
                         </div>
                     </div>
                     <div class="hint">会将所选标签批量写成 旧标签 -> 目标标签，自映射会自动跳过。</div>
+                    <div class="tag-editor-grid">
+                        <select class="editor-select" data-role="move-selected-section">
+                            <option value="">移动所选标签到其他分区</option>
+                            ${currentSections.map((section, idx) => idx === sectionIndex ? '' : `<option value="${idx}">${section.name}</option>`).join('')}
+                        </select>
+                        <button class="btn" data-role="move-selected">移动所选标签</button>
+                    </div>
                     <div class="editor-actions">
                         <button class="btn" data-role="clear-selection">清空选择</button>
-                        <button class="btn btn-primary" data-role="merge-selected">执行合并</button>
+                        <button class="btn" data-role="merge-selected">执行合并</button>
                     </div>
                 </div>
             `;
@@ -958,11 +1201,17 @@
             if (scopeSelect && targetWrap) {
                 const syncVisibility = () => targetWrap.classList.toggle('show', scopeSelect.value === 'target');
                 syncVisibility();
-                slot.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
                 scopeSelect.addEventListener('change', syncVisibility);
             }
             const clearBtn = slot.querySelector('[data-role="clear-selection"]');
             if (clearBtn) clearBtn.addEventListener('click', () => { selectedTagsBySection[sectionIndex] = []; renderSections(); showToast('已清空多选'); });
+            const moveSelectedSelect = slot.querySelector('[data-role="move-selected-section"]');
+            const moveSelectedBtn = slot.querySelector('[data-role="move-selected"]');
+            if (moveSelectedBtn) {
+                moveSelectedBtn.addEventListener('click', () => {
+                    moveSelectedTagsToSection(sectionIndex, moveSelectedSelect ? moveSelectedSelect.value : '');
+                });
+            }
             const mergeBtn = slot.querySelector('[data-role="merge-selected"]');
             if (mergeBtn) mergeBtn.addEventListener('click', () => mergeSelectedTags(sectionIndex, scopeSelect ? scopeSelect.value : 'chat', targetSelect ? targetSelect.value : '', mergeInput ? mergeInput.value : ''));
             return;
@@ -1019,8 +1268,9 @@
             titleInput.value = section.name;
             titleInput.addEventListener('change', () => {
                 section.name = titleInput.value.trim() || '未命名分区';
+                markGroupDirty();
                 updateSubtitle();
-                refreshPreview();
+                renderLocalPreviewFromSections();
             });
             titleWrap.appendChild(titleInput);
             const meta = document.createElement('div');
@@ -1054,9 +1304,10 @@
                 currentSections[sectionIndex] = tmp;
                 if (selectedTag && selectedTag.sectionIndex === sectionIndex) selectedTag.sectionIndex = sectionIndex - 1;
                 else if (selectedTag && selectedTag.sectionIndex === sectionIndex - 1) selectedTag.sectionIndex = sectionIndex;
+                markGroupDirty();
                 renderSections();
                 updateSubtitle();
-                refreshPreview();
+                renderLocalPreviewFromSections();
             };
             actions.appendChild(upBtn);
             const downBtn = document.createElement('button');
@@ -1070,9 +1321,10 @@
                 currentSections[sectionIndex] = tmp;
                 if (selectedTag && selectedTag.sectionIndex === sectionIndex) selectedTag.sectionIndex = sectionIndex + 1;
                 else if (selectedTag && selectedTag.sectionIndex === sectionIndex + 1) selectedTag.sectionIndex = sectionIndex;
+                markGroupDirty();
                 renderSections();
                 updateSubtitle();
-                refreshPreview();
+                renderLocalPreviewFromSections();
             };
             actions.appendChild(downBtn);
             const deleteBtn = document.createElement('button');
@@ -1084,9 +1336,10 @@
                     return;
                 }
                 currentSections.splice(sectionIndex, 1);
+                markGroupDirty();
                 renderSections();
                 updateSubtitle();
-                refreshPreview();
+                renderLocalPreviewFromSections();
             };
             actions.appendChild(deleteBtn);
             head.appendChild(actions);
@@ -1119,9 +1372,10 @@
                 }
                 section.tags.push(value);
                 addInput.value = '';
+                markGroupDirty();
                 renderSections();
                 updateSubtitle();
-                refreshPreview();
+                renderLocalPreviewFromSections();
             };
             addBtn.onclick = submitAdd;
             addInput.addEventListener('keydown', (event) => {
@@ -1197,6 +1451,7 @@
         groupNameInput.value = group.name;
         currentSections = deepClone(group.sections && group.sections.length ? group.sections : [{ name: '未分组', tags: group.tags || [] }]);
         selectedTag = null;
+        markGroupSaved();
         renderGroups();
         renderSections();
         updateSubtitle();
@@ -1237,6 +1492,7 @@
             originalGroupName = '';
             isNewGroup = false;
             currentSections = [];
+            markGroupSaved();
             groupNameInput.value = '';
             renderSections();
             updateSubtitle();
@@ -1261,10 +1517,12 @@
                 }),
             });
             showToast('标签目录已保存');
+            markGroupSaved();
             currentGroupName = name;
             originalGroupName = name;
             isNewGroup = false;
             await loadGroups();
+            await refreshPreview();
         } catch (error) {
             showToast(error.message || '保存失败');
         }
@@ -1295,6 +1553,7 @@
             currentGroupName = newName;
             groupNameInput.value = newName;
             await loadGroups();
+            await refreshPreview();
         } catch (error) {
             showToast(error.message || '重命名失败');
         }
@@ -1314,8 +1573,396 @@
             currentSections = [];
             selectedTag = null;
             await loadGroups();
+            await refreshPreview();
         } catch (error) {
             showToast(error.message || '删除失败');
+        }
+    }
+
+    function switchWorkspaceTab(panelId) {
+        tabButtons.forEach((btn) => {
+            const isActive = btn.getAttribute('data-panel') === panelId;
+            btn.classList.toggle('active', isActive);
+        });
+        Object.entries(tabPanels).forEach(([key, panel]) => {
+            if (!panel) return;
+            panel.classList.toggle('active', key === panelId);
+        });
+    }
+
+    function selectedCleanupIds() {
+        if (!suggestionsTableBody) return [];
+        const checks = suggestionsTableBody.querySelectorAll('input[data-item-id]:checked');
+        return Array.from(checks).map((el) => el.getAttribute('data-item-id'));
+    }
+
+    function shouldShowCleanupItem(item) {
+        const action = String(actionFilter?.value || '').trim();
+        const decision = String(decisionFilter?.value || '').trim();
+        const minConfidence = Number(confidenceFilter?.value || 0);
+        const categoryL1 = String(categoryL1Filter?.value || '').trim();
+        const categoryL2 = String(categoryL2Filter?.value || '').trim();
+        const ruleSource = String(ruleSourceFilter?.value || '').trim();
+
+        if (action && String(item.suggested_action || '') !== action) return false;
+        if (decision && String(item.decision || 'pending') !== decision) return false;
+        if (Number(item.confidence || 0) < minConfidence) return false;
+        if (categoryL1 && !String(item.category_l1 || '').includes(categoryL1)) return false;
+        if (categoryL2 && !String(item.category_l2 || '').includes(categoryL2)) return false;
+        if (ruleSource && !String(item.rule_source || '').includes(ruleSource)) return false;
+        return true;
+    }
+
+    function renderCleanupItems(items) {
+        cleanupItems = Array.isArray(items) ? items : [];
+        if (!suggestionsTableBody) return;
+        suggestionsTableBody.innerHTML = '';
+        cleanupItems.forEach((item) => {
+            if (!shouldShowCleanupItem(item)) return;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><input type="checkbox" data-item-id="${item.item_id}" /></td>
+                <td>${item.item_id}</td>
+                <td>${item.source_tag || ''}</td>
+                <td>${item.suggested_action || ''}</td>
+                <td>${item.suggested_target_tag || ''}</td>
+                <td>${item.category_l1 || ''}</td>
+                <td>${item.category_l2 || ''}</td>
+                <td>${item.confidence || 0}</td>
+                <td>${item.decision || 'pending'}</td>
+            `;
+            suggestionsTableBody.appendChild(tr);
+        });
+    }
+
+    function getCleanupDecisionPayload(itemId, decision, editTarget = null) {
+        const item = cleanupItems.find((x) => x.item_id === itemId) || {};
+        const payload = {
+            item_id: itemId,
+            decision,
+            final_action: item.suggested_action || 'keep',
+            final_target_tag: item.suggested_target_tag || '',
+            final_category: item.suggested_category || null,
+        };
+        if (decision === 'edit_accept' && editTarget !== null) {
+            payload.final_action = 'rename';
+            payload.final_target_tag = String(editTarget || '').trim();
+        }
+        return payload;
+    }
+
+    function formatCleanupSummary(summary, newRulesCount = 0) {
+        const accepted = Number(summary?.accepted || 0);
+        const rejected = Number(summary?.rejected || 0);
+        const edited = Number(summary?.edited || 0);
+        const renameCount = Number(summary?.rename_count || 0);
+        const mergeCount = Number(summary?.merge_count || 0);
+        const conflictSkipped = Math.max(0, renameCount - Number(newRulesCount || 0));
+        return `accepted ${accepted} | rejected ${rejected} | edited ${edited} | rename ${renameCount} | merge ${mergeCount} | 新增规则 ${newRulesCount} | 冲突/已存在跳过 ${conflictSkipped}`;
+    }
+
+    function renderCleanupSummary(summary, newRulesCount = 0) {
+        if (!cleanupSummary || !cleanupSummaryText) return;
+        cleanupSummary.style.display = 'block';
+        cleanupSummaryText.textContent = formatCleanupSummary(summary, newRulesCount);
+    }
+
+    function refreshCleanupImportSectionOptions() {
+        if (!cleanupImportSection) return;
+        const sections = Array.isArray(currentSections) ? currentSections : [];
+        const currentValue = String(cleanupImportSection.value || '');
+        cleanupImportSection.innerHTML = '';
+
+        if (!sections.length) {
+            const empty = document.createElement('option');
+            empty.value = '';
+            empty.textContent = '暂无分区';
+            cleanupImportSection.appendChild(empty);
+            cleanupImportSection.disabled = true;
+            return;
+        }
+
+        sections.forEach((section, index) => {
+            const option = document.createElement('option');
+            option.value = String(index);
+            option.textContent = `${index + 1}. ${section.name || '未分组'} (${(section.tags || []).length})`;
+            cleanupImportSection.appendChild(option);
+        });
+
+        const hasCurrent = Array.from(cleanupImportSection.options).some((opt) => opt.value === currentValue);
+        cleanupImportSection.value = hasCurrent ? currentValue : '0';
+        cleanupImportSection.disabled = String(cleanupImportSource?.value || 'group') !== 'section';
+    }
+
+    function getSelectedContextTags() {
+        const seen = new Set();
+        const out = [];
+        const pushTag = (raw) => {
+            const clean = normalizeTag(raw);
+            if (!clean || seen.has(clean)) return;
+            seen.add(clean);
+            out.push(clean);
+        };
+
+        if (selectedTag && selectedTag.tag) {
+            pushTag(selectedTag.tag);
+        }
+        Object.values(selectedTagsBySection || {}).forEach((arr) => {
+            if (!Array.isArray(arr)) return;
+            arr.forEach(pushTag);
+        });
+        return out;
+    }
+
+    function importCurrentGroupTags() {
+        const source = String(cleanupImportSource?.value || 'group');
+        let tags = [];
+
+        if (source === 'group') {
+            tags = buildFlatTagsFromSections(currentSections || []);
+            if (!tags.length) {
+                showToast('当前标签组暂无可导入标签');
+                return;
+            }
+        } else if (source === 'section') {
+            const index = Number.parseInt(String(cleanupImportSection?.value || '-1'), 10);
+            const section = Number.isInteger(index) && index >= 0 ? currentSections[index] : null;
+            tags = Array.isArray(section?.tags) ? section.tags.map((tag) => normalizeTag(tag)).filter(Boolean) : [];
+            if (!tags.length) {
+                showToast('当前分区暂无可导入标签');
+                return;
+            }
+        } else {
+            tags = getSelectedContextTags();
+            if (!tags.length) {
+                showToast('当前未选中标签，请先在标签总览中选择标签');
+                return;
+            }
+        }
+
+        tagsInput.value = tags.join('\n');
+        showToast(`已导入 ${tags.length} 个标签`);
+        switchWorkspaceTab('aiCleanupPanel');
+    }
+
+    function renderCleanupSessionOptions(rows) {
+        if (!cleanupSessionSelect) return;
+        cleanupSessionSelect.innerHTML = '';
+        const sessions = Array.isArray(rows) ? rows : [];
+        if (!sessions.length) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = '最近会话：暂无';
+            cleanupSessionSelect.appendChild(option);
+            return;
+        }
+
+        sessions.forEach((row) => {
+            const option = document.createElement('option');
+            const sid = String(row.session_id || '');
+            option.value = sid;
+            const ts = Number(row.created_at || 0) * 1000;
+            const labelTime = ts > 0 ? new Date(ts).toLocaleString() : '未知时间';
+            option.textContent = `${labelTime} | ${sid} | ${row.status || '-'} | accepted ${row.accepted || 0}`;
+            cleanupSessionSelect.appendChild(option);
+        });
+
+        if (cleanupSessionId) {
+            const match = sessions.find((row) => String(row.session_id || '') === cleanupSessionId);
+            if (match) {
+                cleanupSessionSelect.value = cleanupSessionId;
+            }
+        }
+    }
+
+    async function loadCleanupSessionList() {
+        try {
+            const data = await fetchJson('/api/tag-cleanup/sessions?limit=30');
+            renderCleanupSessionOptions(data.items || []);
+        } catch (error) {
+            showToast(error.message || '加载会话列表失败');
+        }
+    }
+
+    async function loadSelectedCleanupSession() {
+        const selected = String(cleanupSessionSelect?.value || '').trim();
+        if (!selected) {
+            showToast('请先选择会话');
+            return;
+        }
+        cleanupSessionId = selected;
+        await loadCleanupSession();
+    }
+
+    async function loadCleanupSession() {
+        if (!cleanupSessionId) {
+            sessionInfo.textContent = '暂无会话，请先生成建议';
+            return;
+        }
+        try {
+            const data = await fetchJson(`/api/tag-cleanup/session/${encodeURIComponent(cleanupSessionId)}`);
+            sessionInfo.textContent = `会话 ${data.session_id} | 状态 ${data.status} | accepted ${data.summary.accepted} | pending ${data.summary.pending}`;
+            renderCleanupItems(data.items || []);
+        } catch (error) {
+            showToast(error.message || '加载会话失败');
+        }
+    }
+
+    async function generateCleanupPreview() {
+        if (sessionInfo) {
+            sessionInfo.textContent = '正在生成 AI 建议...';
+        }
+        const lines = String(tagsInput?.value || '').split(/\n+/).map((v) => v.trim()).filter(Boolean);
+        if (!lines.length) {
+            const msg = '请先输入标签（每行一个）';
+            showToast(msg);
+            if (sessionInfo) {
+                sessionInfo.textContent = msg;
+            }
+            return;
+        }
+        try {
+            const payload = {
+                source_type: 'manual_input',
+                tags: lines.map((tag) => ({ tag, count: 0, samples: [], aliases: [] })),
+            };
+            const data = await fetchJson('/api/tag-cleanup/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            cleanupSessionId = data.session_id;
+            sessionInfo.textContent = `会话 ${data.session_id} | 建议数 ${data.summary.total_suggestions} | 高置信 ${data.summary.high_confidence_count}`;
+            renderCleanupItems(data.items || []);
+            await loadCleanupSessionList();
+            switchWorkspaceTab('aiCleanupPanel');
+        } catch (error) {
+            const msg = error && error.message ? String(error.message) : '生成建议失败';
+            console.error('generateCleanupPreview failed:', error);
+            showToast(msg);
+            if (sessionInfo) {
+                sessionInfo.textContent = `生成失败：${msg}`;
+            }
+        }
+    }
+
+    async function applyCleanup(decisions, mode, confirmToken = null) {
+        if (!cleanupSessionId) {
+            showToast('暂无会话，请先生成建议');
+            return null;
+        }
+        const body = {
+            session_id: cleanupSessionId,
+            decisions,
+            apply_mode: mode,
+        };
+        if (confirmToken !== null) body.confirm_token = confirmToken;
+        return fetchJson('/api/tag-cleanup/apply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+    }
+
+    async function batchCleanupDecision(decision) {
+        const ids = selectedCleanupIds();
+        if (!ids.length) {
+            showToast('请先选择建议项');
+            return;
+        }
+        try {
+            const decisions = ids.map((id) => getCleanupDecisionPayload(id, decision));
+            await applyCleanup(decisions, 'dry_run');
+            await loadCleanupSession();
+        } catch (error) {
+            showToast(error.message || '批量决策失败');
+        }
+    }
+
+    async function editCleanupSelected() {
+        const ids = selectedCleanupIds();
+        if (!ids.length) {
+            showToast('请先选择建议项');
+            return;
+        }
+        const target = window.prompt('请输入统一目标标签（final_target_tag）', '');
+        if (target === null) return;
+        const cleaned = String(target).trim();
+        if (!cleaned) {
+            showToast('目标标签不能为空');
+            return;
+        }
+        try {
+            const decisions = ids.map((id) => getCleanupDecisionPayload(id, 'edit_accept', cleaned));
+            await applyCleanup(decisions, 'dry_run');
+            await loadCleanupSession();
+        } catch (error) {
+            showToast(error.message || '编辑后接受失败');
+        }
+    }
+
+    async function runCleanupDryRun() {
+        try {
+            const data = await applyCleanup([], 'dry_run');
+            if (!data) return;
+            lastDryRunSummary = {
+                summary: data.summary || {},
+                newRulesCount: Array.isArray(data.new_rename_rules) ? data.new_rename_rules.length : 0,
+            };
+            sessionInfo.textContent = `DryRun 完成 | accepted ${data.summary.accepted} | rejected ${data.summary.rejected} | rename ${data.summary.rename_count}`;
+            renderCleanupSummary(lastDryRunSummary.summary, lastDryRunSummary.newRulesCount);
+            await loadCleanupSession();
+        } catch (error) {
+            showToast(error.message || '模拟执行失败');
+        }
+    }
+
+    async function runCleanupWrite() {
+        const summaryText = lastDryRunSummary
+            ? formatCleanupSummary(lastDryRunSummary.summary, lastDryRunSummary.newRulesCount)
+            : '尚未执行 DryRun，建议先模拟执行后再写入。';
+        const confirmToken = window.prompt(`输入 APPLY 确认写入规则。\n${summaryText}`, '');
+        if (confirmToken === null) return;
+        try {
+            const data = await applyCleanup([], 'write', confirmToken);
+            if (!data) return;
+            const newRulesCount = Array.isArray(data.new_rename_rules) ? data.new_rename_rules.length : 0;
+            sessionInfo.textContent = `写入完成 | accepted ${data.summary.accepted} | new_rules ${newRulesCount}`;
+            renderCleanupSummary(data.summary || {}, newRulesCount);
+            await loadCleanupSession();
+        } catch (error) {
+            showToast(error.message || '写入失败');
+        }
+    }
+
+    async function exportCleanupJson() {
+        if (!cleanupSessionId) {
+            showToast('暂无会话可导出');
+            return;
+        }
+        try {
+            const data = await fetchJson('/api/tag-cleanup/export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session_id: cleanupSessionId,
+                    format: 'json',
+                    export_type: 'final_mapping',
+                }),
+            });
+            const filename = data.filename || `tag_cleanup_${cleanupSessionId}.json`;
+            const blob = new Blob([JSON.stringify(data.content || [], null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            showToast('已导出 JSON');
+        } catch (error) {
+            showToast(error.message || '导出失败');
         }
     }
 
@@ -1323,6 +1970,8 @@
         try {
             await loadTargetMeta();
             await loadGroups();
+            await refreshPreview();
+            await loadCleanupSessionList();
         } catch (error) {
             showToast(error.message || '加载失败');
         }
@@ -1336,6 +1985,7 @@
     document.getElementById('toggleRawBtn').addEventListener('click', () => rawPanel.classList.toggle('show'));
     document.getElementById('addSectionBtn').addEventListener('click', () => {
         currentSections.push(makeEmptySection(`新分区 ${currentSections.length + 1}`));
+        markGroupDirty();
         renderSections();
         updateSubtitle();
     });
@@ -1352,6 +2002,7 @@
         groupNameInput.value = name;
         currentSections = [makeEmptySection('未分组')];
         selectedTag = null;
+        markGroupSaved();
         nameInput.value = '';
         renderSections();
         updateSubtitle();
@@ -1384,6 +2035,7 @@
         if (sections.length) {
             currentSections = sections;
             selectedTag = null;
+            markGroupDirty();
             renderSections();
             updateSubtitle();
             refreshPreview();
@@ -1391,6 +2043,44 @@
         }
     });
 
+    tabButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+            const panelId = btn.getAttribute('data-panel');
+            if (panelId) switchWorkspaceTab(panelId);
+        });
+    });
+
+    cleanupImportSource?.addEventListener('change', () => {
+        if (cleanupImportSection) {
+            cleanupImportSection.disabled = String(cleanupImportSource.value || 'group') !== 'section';
+        }
+        refreshCleanupImportSectionOptions();
+    });
+
+    importCurrentGroupTagsBtn?.addEventListener('click', importCurrentGroupTags);
+    previewBtn?.addEventListener('click', generateCleanupPreview);
+    loadSessionBtn?.addEventListener('click', loadCleanupSession);
+    cleanupSessionRefreshBtn?.addEventListener('click', loadCleanupSessionList);
+    cleanupSessionLoadBtn?.addEventListener('click', loadSelectedCleanupSession);
+    acceptSelectedBtn?.addEventListener('click', () => batchCleanupDecision('accept'));
+    rejectSelectedBtn?.addEventListener('click', () => batchCleanupDecision('reject'));
+    editSelectedBtn?.addEventListener('click', editCleanupSelected);
+    applyDryRunBtn?.addEventListener('click', runCleanupDryRun);
+    applyWriteBtn?.addEventListener('click', runCleanupWrite);
+    exportJsonBtn?.addEventListener('click', exportCleanupJson);
+
+    selectAll?.addEventListener('change', () => {
+        const checks = suggestionsTableBody?.querySelectorAll('input[data-item-id]') || [];
+        checks.forEach((el) => {
+            el.checked = !!selectAll.checked;
+        });
+    });
+
+    [actionFilter, decisionFilter, confidenceFilter, categoryL1Filter, categoryL2Filter, ruleSourceFilter]
+        .filter(Boolean)
+        .forEach((el) => el.addEventListener('input', () => renderCleanupItems(cleanupItems)));
+
+    refreshCleanupImportSectionOptions();
     bootstrap();
 </script>
 {% endblock %}

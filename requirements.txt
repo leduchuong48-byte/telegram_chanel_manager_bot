@@ -7,6 +7,6 @@ passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
 python-multipart==0.0.6
 apscheduler==3.10.4
-telethon
+telethon==1.42.0
 pydantic==2.5.0
 pydantic-settings==2.1.0

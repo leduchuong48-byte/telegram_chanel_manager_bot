@@ -58,6 +58,55 @@
 
     .hint { font-size: 12px; color: var(--text-faint); }
 
+    .provider-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .provider-table-wrap { overflow: auto; border: 1px solid var(--border-soft); border-radius: 14px; }
+    .provider-table { width: 100%; min-width: 860px; border-collapse: collapse; }
+    .provider-table th, .provider-table td { padding: 10px 12px; border-bottom: 1px solid var(--border-soft); font-size: 13px; text-align: left; }
+    .provider-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+    .modal-mask {
+        position: fixed;
+        inset: 0;
+        background: rgba(15, 23, 42, 0.45);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 1200;
+        padding: 16px;
+    }
+
+    .modal-mask.show { display: flex; }
+
+    .provider-modal {
+        width: min(760px, 100%);
+        background: var(--bg-panel);
+        border: 1px solid var(--border-soft);
+        border-radius: 16px;
+        box-shadow: 0 24px 64px rgba(6, 12, 18, 0.28);
+        padding: 18px;
+        display: grid;
+        gap: 14px;
+    }
+
+    .provider-modal-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .provider-modal-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+    }
+
+    .provider-modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+
     .toast {
         position: fixed;
         bottom: 24px;
@@ -129,7 +178,7 @@
             </div>
             <div class="form-field">
                 <label for="llm_base_url">LLM Base URL</label>
-                <input id="llm_base_url" type="text" placeholder="https://api.nas.xiaoermiao.xyz:1996">
+                <input id="llm_base_url" type="text" placeholder="https://api.example.com">
                 <div id="llm_base_url_warning" class="hint">提示：不要手动追加 /v1，网关重定向后会自动带上。</div>
             </div>
             <div class="form-field">
@@ -150,8 +199,93 @@
                 <input id="llm_enabled" type="text" placeholder="true">
             </div>
         </div>
+
+    <div class="form-card" id="providerManagerCard">
+        <div class="provider-card-head">
+            <div>
+                <div class="panel-label">Provider 管理（高级）</div>
+                <div class="hint">用于多 Provider 管理、测试连接与能力探测。API: /api/providers</div>
+            </div>
+            <div class="provider-actions">
+                <button class="btn" id="providerRefreshBtn" type="button">刷新 Provider</button>
+                <button class="btn btn-primary" id="providerAddBtn" type="button">新增 Provider</button>
+            </div>
+        </div>
+        <div class="provider-table-wrap">
+            <table class="provider-table" id="providersTable">
+                <thead>
+                    <tr>
+                        <th>Provider Key</th>
+                        <th>类型</th>
+                        <th>Base URL</th>
+                        <th>默认模型</th>
+                        <th>响应模式</th>
+                        <th>启用</th>
+                        <th>已保存密钥</th>
+                        <th>测试状态</th>
+                        <th>探测状态</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <div class="hint">操作说明：可执行“测试连接”“探测能力”，并可通过“编辑”更新 Provider 参数。</div>
+    </div>
+
     </div>
 </div>
+
+<div class="modal-mask" id="providerModalMask" role="dialog" aria-modal="true" aria-labelledby="providerModalTitle">
+    <div class="provider-modal">
+        <div class="provider-modal-head">
+            <div>
+                <div class="panel-label" id="providerModalTitle">新增 Provider</div>
+                <div class="hint">通过表单维护 Provider，避免 prompt 多次输入。</div>
+            </div>
+            <button class="btn" type="button" id="providerModalCloseBtn">关闭</button>
+        </div>
+        <div class="provider-modal-grid">
+            <div class="form-field">
+                <label for="provider_form_key">Provider Key</label>
+                <input id="provider_form_key" type="text" placeholder="local-ai">
+            </div>
+            <div class="form-field">
+                <label for="provider_form_name">Display Name</label>
+                <input id="provider_form_name" type="text" placeholder="Local AI">
+            </div>
+            <div class="form-field">
+                <label for="provider_form_type">Provider Type</label>
+                <input id="provider_form_type" type="text" placeholder="openai_compatible">
+            </div>
+            <div class="form-field">
+                <label for="provider_form_url">Base URL</label>
+                <input id="provider_form_url" type="text" placeholder="https://...">
+            </div>
+            <div class="form-field">
+                <label for="provider_form_model">Default Model</label>
+                <input id="provider_form_model" type="text" placeholder="gpt-5.2">
+            </div>
+            <div class="form-field">
+                <label for="provider_form_mode">Responses Mode</label>
+                <input id="provider_form_mode" type="text" placeholder="auto">
+            </div>
+            <div class="form-field">
+                <label for="provider_form_enabled">Enabled</label>
+                <input id="provider_form_enabled" type="text" placeholder="true">
+            </div>
+            <div class="form-field">
+                <label for="provider_form_api_key">API Key（可选）</label>
+                <input id="provider_form_api_key" type="password" placeholder="留空不变更">
+            </div>
+        </div>
+        <div class="provider-modal-actions">
+            <button class="btn" type="button" id="providerModalCancelBtn">取消</button>
+            <button class="btn btn-primary" type="button" id="providerModalSaveBtn">保存 Provider</button>
+        </div>
+    </div>
+</div>
+
 <div class="toast" id="toast"></div>
 {% endblock %}
 
@@ -180,6 +314,29 @@
     const toast = document.getElementById('toast');
     const btnSave = document.getElementById('btn-save');
     const btnRefresh = document.getElementById('btn-refresh');
+
+    const providerRefreshBtn = document.getElementById('providerRefreshBtn');
+    const providerAddBtn = document.getElementById('providerAddBtn');
+    const providersTableBody = document.querySelector('#providersTable tbody');
+    const providerModalMask = document.getElementById('providerModalMask');
+    const providerModalTitle = document.getElementById('providerModalTitle');
+    const providerModalCloseBtn = document.getElementById('providerModalCloseBtn');
+    const providerModalCancelBtn = document.getElementById('providerModalCancelBtn');
+    const providerModalSaveBtn = document.getElementById('providerModalSaveBtn');
+
+    const providerFormFields = {
+        provider_key: document.getElementById('provider_form_key'),
+        display_name: document.getElementById('provider_form_name'),
+        provider_type: document.getElementById('provider_form_type'),
+        base_url: document.getElementById('provider_form_url'),
+        default_model: document.getElementById('provider_form_model'),
+        use_responses_mode: document.getElementById('provider_form_mode'),
+        enabled: document.getElementById('provider_form_enabled'),
+        api_key: document.getElementById('provider_form_api_key'),
+    };
+
+    let providerEditingKey = '';
+    let providerRowsByKey = {};
 
     function showToast(message) {
         toast.textContent = message;
@@ -256,6 +413,155 @@
         }
     }
 
+    async function providerFetch(url, options = {}) {
+        const token = getToken();
+        if (!token) {
+            redirectToLogin();
+            throw new Error('unauthorized');
+        }
+        const headers = Object.assign({}, options.headers || {}, { 'Authorization': `Bearer ${token}` });
+        const resp = await fetch(url, Object.assign({}, options, { headers }));
+        if (resp.status === 401) {
+            redirectToLogin();
+            throw new Error('unauthorized');
+        }
+        const payload = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            throw new Error(payload.detail || payload.message || 'Provider 请求失败');
+        }
+        return payload;
+    }
+
+    function openProviderModal(mode, provider = null) {
+        providerEditingKey = mode === 'edit' && provider ? String(provider.provider_key || '') : '';
+        providerModalTitle.textContent = providerEditingKey ? `编辑 Provider：${providerEditingKey}` : '新增 Provider';
+
+        providerFormFields.provider_key.value = provider ? String(provider.provider_key || '') : '';
+        providerFormFields.display_name.value = provider ? String(provider.display_name || '') : '';
+        providerFormFields.provider_type.value = provider ? String(provider.provider_type || 'openai_compatible') : 'openai_compatible';
+        providerFormFields.base_url.value = provider ? String(provider.base_url || '') : '';
+        providerFormFields.default_model.value = provider ? String(provider.default_model || '') : '';
+        providerFormFields.use_responses_mode.value = provider ? String(provider.use_responses_mode || 'auto') : 'auto';
+        providerFormFields.enabled.value = provider ? String(!!provider.enabled) : 'true';
+        providerFormFields.api_key.value = '';
+
+        providerFormFields.provider_key.disabled = !!providerEditingKey;
+        providerModalMask.classList.add('show');
+    }
+
+    function closeProviderModal() {
+        providerModalMask.classList.remove('show');
+        providerEditingKey = '';
+    }
+
+    async function saveProviderFromModal() {
+        const payload = {
+            provider_key: String(providerFormFields.provider_key.value || '').trim(),
+            display_name: String(providerFormFields.display_name.value || '').trim(),
+            provider_type: String(providerFormFields.provider_type.value || 'openai_compatible').trim(),
+            base_url: String(providerFormFields.base_url.value || '').trim(),
+            default_model: String(providerFormFields.default_model.value || '').trim(),
+            use_responses_mode: String(providerFormFields.use_responses_mode.value || 'auto').trim(),
+            enabled: String(providerFormFields.enabled.value || 'true').trim().toLowerCase() === 'true',
+            api_key: String(providerFormFields.api_key.value || '').trim(),
+        };
+
+        if (!payload.provider_key || !payload.display_name || !payload.provider_type || !payload.base_url) {
+            showToast('请完整填写 Provider 必填项');
+            return;
+        }
+
+        try {
+            if (providerEditingKey) {
+                const patchPayload = {
+                    display_name: payload.display_name,
+                    base_url: payload.base_url,
+                    enabled: payload.enabled,
+                    use_responses_mode: payload.use_responses_mode,
+                    default_model: payload.default_model,
+                };
+                if (payload.api_key) {
+                    patchPayload.api_key = payload.api_key;
+                }
+                await providerFetch(`/api/providers/${encodeURIComponent(providerEditingKey)}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(patchPayload),
+                });
+                showToast(`Provider ${providerEditingKey} 已更新`);
+            } else {
+                await providerFetch('/api/providers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                showToast('Provider 已创建');
+            }
+            closeProviderModal();
+            await loadProviders();
+        } catch (error) {
+            showToast(error.message || '保存 Provider 失败');
+        }
+    }
+
+    function renderProviders(rows) {
+        if (!providersTableBody) return;
+        providerRowsByKey = {};
+        providersTableBody.innerHTML = '';
+        (rows || []).forEach((item) => {
+            providerRowsByKey[String(item.provider_key || '')] = item;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${item.provider_key || ''}</td>
+                <td>${item.provider_type || ''}</td>
+                <td>${item.base_url || ''}</td>
+                <td>${item.default_model || ''}</td>
+                <td>${item.use_responses_mode || ''}</td>
+                <td>${item.enabled ? 'true' : 'false'}</td>
+                <td>${item.has_api_key ? 'yes' : 'no'}</td>
+                <td>${item.last_test_status || '-'}</td>
+                <td>${item.last_probe_status || '-'}</td>
+                <td>
+                    <div class="provider-actions">
+                        <button class="btn" data-action="test" data-key="${item.provider_key}">测试连接</button>
+                        <button class="btn" data-action="probe" data-key="${item.provider_key}">探测能力</button>
+                        <button class="btn" data-action="edit" data-key="${item.provider_key}">编辑</button>
+                    </div>
+                </td>
+            `;
+            providersTableBody.appendChild(tr);
+        });
+    }
+
+    async function loadProviders() {
+        try {
+            const payload = await providerFetch('/api/providers');
+            renderProviders(payload.data || []);
+        } catch (error) {
+            showToast(error.message || '加载 Provider 失败');
+        }
+    }
+
+    async function runProviderAction(action, key) {
+        if (!key) return;
+        try {
+            if (action === 'test') {
+                await providerFetch(`/api/providers/${encodeURIComponent(key)}/test`, { method: 'POST' });
+                showToast(`Provider ${key} 测试连接完成`);
+                await loadProviders();
+            } else if (action === 'probe') {
+                await providerFetch(`/api/providers/${encodeURIComponent(key)}/probe`, { method: 'POST' });
+                showToast(`Provider ${key} 探测能力完成`);
+                await loadProviders();
+            } else if (action === 'edit') {
+                const row = providerRowsByKey[String(key)] || null;
+                openProviderModal('edit', row);
+            }
+        } catch (error) {
+            showToast(error.message || 'Provider 操作失败');
+        }
+    }
+
     async function saveSettings() {
         const token = getToken();
         if (!token) {
@@ -317,6 +623,27 @@
     btnRefresh.addEventListener('click', loadSettings);
     llmFields.base_url.addEventListener('input', validateLlmBaseUrl);
 
+    providerRefreshBtn?.addEventListener('click', loadProviders);
+    providerAddBtn?.addEventListener('click', () => openProviderModal('create'));
+    providerModalCloseBtn?.addEventListener('click', closeProviderModal);
+    providerModalCancelBtn?.addEventListener('click', closeProviderModal);
+    providerModalSaveBtn?.addEventListener('click', saveProviderFromModal);
+    providerModalMask?.addEventListener('click', (event) => {
+        if (event.target === providerModalMask) {
+            closeProviderModal();
+        }
+    });
+
+    providersTableBody?.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const action = target.getAttribute('data-action');
+        const key = target.getAttribute('data-key');
+        if (!action || !key) return;
+        runProviderAction(action, key);
+    });
+
     loadSettings();
+    loadProviders();
 </script>
 {% endblock %}

@@ -3,7 +3,7 @@
     "enabled": true,
     "host": "0.0.0.0",
     "port": 8000,
-    "secret_key": "your-secret-key-change-in-production-12345"
+    "secret_key": "change-me"
   },
   "web_users": [
     {

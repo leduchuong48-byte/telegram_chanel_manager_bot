@@ -47,12 +47,92 @@ from tg_media_dedupe_bot.telethon_tags import (
     _resolve_entity as _resolve_entity_telethon,
     run_tag_scan,
 )
+from tg_media_dedupe_bot.health import set_bot_runtime_state
+from tg_media_dedupe_bot.reliability import TelegramFailure, classify_delete_error
+from tg_media_dedupe_bot.forwarding import BotForwardingEngine, ForwardingRule, parse_forwarding_rules
+from tg_media_dedupe_bot.source_hiding import copy_and_delete_message, has_visible_source, hide_history, HideStats
+from tg_media_dedupe_bot.deletion_queue import process_pending_deletions
+from tg_media_dedupe_bot.tag_extraction import (
+    HASHTAG_RE as _HASHTAG_RE,
+    extract_bot_hashtags,
+    is_valid_tag as _is_valid_tag,
+    normalize_tag_text as _normalize_tag_text,
+)
 
 _RUNTIME_CONFIG: Config | None = None
 _RUNTIME_CONFIG_LOCK = threading.Lock()
+_FORWARDING_RULES: tuple[ForwardingRule, ...] = ()
+_FORWARDING_RULES_LOCK = threading.Lock()
 _MANAGED_CHAT_TYPES = {"group", "supergroup", "channel"}
 _BOT_MANAGE_STATUSES = {"administrator", "creator"}
 _INACTIVE_MEMBER_STATUSES = {"left", "kicked"}
+
+_AD_LINK_RE = re.compile(r"(https?://|t\.me/|telegram\.me/|www\.)", re.IGNORECASE)
+_MEDIA_BLACKLIST_TYPES = ("video", "audio", "photo", "text", "document")
+_BOT_ALLOWED_UPDATES = ("message", "channel_post", "callback_query", "my_chat_member")
+_LOGGER = logging.getLogger("tg_media_dedupe_bot")
+
+
+def _classify_delete_error(exc: BaseException) -> TelegramFailure:
+    return classify_delete_error(exc)
+
+
+def _configure_application_builder(builder: Any) -> Any:
+    settings = (
+        ("connect_timeout", 10),
+        ("read_timeout", 30),
+        ("write_timeout", 30),
+        ("pool_timeout", 10),
+        ("connection_pool_size", 64),
+        ("get_updates_connect_timeout", 10),
+        ("get_updates_read_timeout", 45),
+        ("get_updates_pool_timeout", 10),
+        ("http_version", "1.1"),
+    )
+    for method_name, value in settings:
+        method = getattr(builder, method_name, None)
+        if callable(method):
+            builder = method(value)
+    return builder
+
+
+async def _handle_application_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    exc = getattr(context, "error", None)
+    if not isinstance(exc, BaseException):
+        exc = RuntimeError(str(exc or "unknown application error"))
+    failure = classify_delete_error(exc)
+    set_bot_runtime_state("degraded", f"{failure.category}: {exc}")
+    _LOGGER.error(
+        "telegram_application_error category=%s disposition=%s update=%r error=%s",
+        failure.category,
+        failure.disposition,
+        update,
+        exc,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+
+
+async def _runtime_heartbeat_once(application: Any) -> bool:
+    try:
+        await application.bot.get_me()
+    except Exception as exc:  # noqa: BLE001
+        failure = classify_delete_error(exc)
+        set_bot_runtime_state("degraded", f"{failure.category}: {exc}")
+        _LOGGER.warning(
+            "telegram_heartbeat_failed category=%s disposition=%s error=%s",
+            failure.category,
+            failure.disposition,
+            exc,
+        )
+        return False
+    set_bot_runtime_state("running", "telegram heartbeat ok")
+    return True
+
+
+async def _runtime_heartbeat_loop(application: Any, *, interval_seconds: float = 60.0) -> None:
+    while True:
+        await _runtime_heartbeat_once(application)
+        await asyncio.sleep(max(5.0, float(interval_seconds)))
 
 
 def set_runtime_config(config: Config) -> None:
@@ -60,6 +140,23 @@ def set_runtime_config(config: Config) -> None:
     global _RUNTIME_CONFIG
     with _RUNTIME_CONFIG_LOCK:
         _RUNTIME_CONFIG = config
+
+
+def apply_forwarding_rules(raw_rules: object) -> list[str]:
+    global _FORWARDING_RULES
+    parsed = tuple(parse_forwarding_rules(raw_rules))
+    with _FORWARDING_RULES_LOCK:
+        _FORWARDING_RULES = parsed
+    return [rule.rule_id for rule in parsed]
+
+
+def get_forwarding_rules() -> list[ForwardingRule]:
+    with _FORWARDING_RULES_LOCK:
+        return list(_FORWARDING_RULES)
+
+
+def is_bot_forwarding_source(chat_id: int) -> bool:
+    return any(rule.mode == "bot_mode" and rule.source_id == int(chat_id) for rule in get_forwarding_rules())
 
 
 def _coerce_bool(value: object) -> bool | None:
@@ -330,39 +427,9 @@ def _telethon_media_duration(message: Any) -> int | None:
     return None
 
 
-_HASHTAG_RE = re.compile(r"(?<!\w)#(\w{1,64})")
-_INVALID_TAG_RE = re.compile(r"^(?:\d+|(?=.*\d)(?=.*[A-Za-z])[0-9A-Za-z]+)$")
-_AD_LINK_RE = re.compile(r"(https?://|t\.me/|telegram\.me/|www\.)", re.IGNORECASE)
-_MEDIA_BLACKLIST_TYPES = ("video", "audio", "photo", "text", "document")
-
-
-def _is_valid_tag(tag: str) -> bool:
-    if not tag:
-        return False
-    return _INVALID_TAG_RE.match(tag) is None
-
 
 def _extract_hashtags_bot(text: str, entities: list[Any] | None) -> list[str]:
-    if not text:
-        return []
-    if entities:
-        tags: list[str] = []
-        for ent in entities:
-            if str(getattr(ent, "type", "")).lower() != "hashtag":
-                continue
-            offset = int(getattr(ent, "offset", 0))
-            length = int(getattr(ent, "length", 0))
-            if length <= 1:
-                continue
-            raw = text[offset : offset + length]
-            if not raw.startswith("#") or len(raw) <= 1:
-                continue
-            tag = raw[1:]
-            if tag and _is_valid_tag(tag):
-                tags.append(tag)
-        if tags:
-            return tags
-    return [m.group(1) for m in _HASHTAG_RE.finditer(text) if _is_valid_tag(m.group(1))]
+    return extract_bot_hashtags(text, entities)
 
 
 def _apply_text_block(text: str, keywords: list[str]) -> str:
@@ -425,8 +492,6 @@ def _build_tag_caption(text: str, tags: list[str]) -> str:
     return f"{text}\n\n{tag_line}"
 
 
-def _normalize_tag_text(tag: str) -> str:
-    return tag.strip().lstrip("#").casefold()
 
 
 def _strip_hashtags(text: str) -> str:
@@ -859,6 +924,7 @@ def run_bot() -> None:
         return int(raw)
 
     config_snapshot = _load_config_json()
+    apply_forwarding_rules(config_snapshot.get("forwarding_rules", []))
     web_panel_url = _resolve_web_panel_url(config_snapshot)
     admin_id = _resolve_admin_id(config_snapshot)
 
@@ -895,6 +961,8 @@ def run_bot() -> None:
     _start_health_server()
 
     db = Database(config.db_path)
+    forwarding_engine = BotForwardingEngine(db, get_forwarding_rules)
+    heartbeat_task: asyncio.Task[None] | None = None
     def _migrate_text_block_to_file() -> None:
         keywords = db.list_text_block_keywords()
         if not keywords:
@@ -961,6 +1029,8 @@ def run_bot() -> None:
     batch_delete_states: dict[int, BatchDeleteState] = {}
     media_filter_tasks: dict[int, asyncio.Task] = {}
     media_filter_states: dict[int, MediaFilterState] = {}
+    source_hide_tasks: dict[int, asyncio.Task] = {}
+    source_hide_states: dict[int, HideStats] = {}
     login_states: dict[int, PendingLogin] = {}
     qr_tasks: dict[int, asyncio.Task] = {}
 
@@ -1072,6 +1142,79 @@ def run_bot() -> None:
         async with db_lock:
             raw = db.get_setting(_media_blacklist_key(chat_id))
         return _parse_media_blacklist(raw)
+
+    async def _source_hide_enabled(chat_id: int) -> bool:
+        async with db_lock:
+            raw = db.get_setting(_chat_setting_key(chat_id, "hide_forward_source"))
+        parsed = _parse_bool_setting(raw)
+        return True if parsed is None else parsed
+
+    async def _set_source_hide_enabled(chat_id: int, enabled: bool) -> None:
+        async with db_lock:
+            db.set_setting(_chat_setting_key(chat_id, "hide_forward_source"), "1" if enabled else "0")
+
+    async def _start_source_hide(chat_id: int, context: ContextTypes.DEFAULT_TYPE, *, all_chats: bool = False) -> None:
+        if source_hide_tasks and (all_chats or chat_id in source_hide_tasks):
+            await context.bot.send_message(chat_id=chat_id, text="已有来源隐藏任务在运行")
+            return
+        if all_chats:
+            async with db_lock:
+                managed = db.list_managed_chats(active_only=True, manageable_only=True, limit=5000)
+            targets = [int(row["chat_id"]) for row in managed]
+        else:
+            targets = [int(chat_id)]
+        if not targets:
+            await context.bot.send_message(chat_id=chat_id, text="没有可处理的管理群组")
+            return
+
+        async def runner() -> None:
+            total = HideStats()
+            try:
+                from telethon import TelegramClient  # type: ignore
+                if config.tg_api_id is None or not config.tg_api_hash:
+                    raise RuntimeError("缺少 Telethon API 配置")
+                client = TelegramClient(config.tg_session, config.tg_api_id, config.tg_api_hash)
+                await client.connect()
+                try:
+                    if not await client.is_user_authorized():
+                        raise RuntimeError("Telethon 用户 session 未授权")
+                    for target in targets:
+                        if not all_chats and not await _source_hide_enabled(target):
+                            continue
+                        result = await hide_history(client=client, bot=context.bot, chat_id=target)
+                        total.scanned += result.scanned
+                        total.converted += result.converted
+                        total.skipped += result.skipped
+                        total.failed += result.failed
+                finally:
+                    await client.disconnect()
+                await context.bot.send_message(chat_id=chat_id, text=f"来源隐藏完成：扫描 {total.scanned}，转换 {total.converted}，跳过 {total.skipped}，失败 {total.failed}")
+            except asyncio.CancelledError:
+                await context.bot.send_message(chat_id=chat_id, text=f"来源隐藏已取消：扫描 {total.scanned}，转换 {total.converted}，失败 {total.failed}")
+            except Exception as exc:  # noqa: BLE001
+                await context.bot.send_message(chat_id=chat_id, text=f"来源隐藏失败：{_telethon_error_text(exc)}")
+            finally:
+                for target in targets:
+                    source_hide_tasks.pop(target, None)
+
+        task = context.application.create_task(runner()) if hasattr(context.application, "create_task") else asyncio.create_task(runner())
+        for target in targets:
+            source_hide_tasks[target] = task
+
+    async def _maybe_hide_source(message: Any, context: ContextTypes.DEFAULT_TYPE) -> Any:
+        chat = getattr(message, "chat", None)
+        chat_id = int(getattr(chat, "id", 0) or 0)
+        if not chat_id or not has_visible_source(message) or not await _source_hide_enabled(chat_id):
+            return message
+        dry_run, delete_enabled = await _effective_mode(chat_id)
+        if dry_run or not delete_enabled:
+            return message
+        try:
+            copied = await copy_and_delete_message(context.bot, message)
+            return copied or message
+        except Exception:  # noqa: BLE001
+            log.exception("realtime_source_hide_failed chat=%s message=%s", chat_id, getattr(message, "message_id", None))
+            return message
 
     def _tag_count_markup(current: int) -> InlineKeyboardMarkup:
         rows: list[list[InlineKeyboardButton]] = []
@@ -1355,10 +1498,12 @@ def run_bot() -> None:
     ) -> None:
         tag_count = await _effective_tag_count(chat_id)
         blacklist = await _effective_media_blacklist(chat_id)
+        hide_enabled = await _source_hide_enabled(chat_id)
         text = (
             "请选择操作：\n"
             f"- 补标签数量：{tag_count}\n"
             f"- 媒体黑名单：{','.join(sorted(blacklist)) if blacklist else '无'}\n"
+            f"- 自动隐藏来源：{'开' if hide_enabled else '关'}\n"
             "- 标签更新：清理黑名单/文本并补齐标签后生成目录\n"
             "- 新建标签：添加到标签库\n"
             "- 删除特定媒体：删除包含指定文本的消息\n"
@@ -1369,6 +1514,9 @@ def run_bot() -> None:
             [
                 [InlineKeyboardButton(f"补标签数量: {tag_count}", callback_data="cm:tag_count")],
                 [InlineKeyboardButton("媒体类型黑名单", callback_data="cm:media_blacklist")],
+                [InlineKeyboardButton(f"自动隐藏来源：{'开' if hide_enabled else '关'}", callback_data="cm:toggle_source_hide")],
+                [InlineKeyboardButton("批量隐藏当前群组历史消息", callback_data="cm:source_hide_batch")],
+                [InlineKeyboardButton("批量处理全部管理群组（管理员私聊）", callback_data="cm:source_hide_all")],
                 [InlineKeyboardButton("标签更新", callback_data="cm:tag_update")],
                 [InlineKeyboardButton("新建标签", callback_data="cm:tag_add")],
                 [InlineKeyboardButton("删除特定媒体", callback_data="cm:delete_by_text")],
@@ -1536,22 +1684,21 @@ def run_bot() -> None:
             await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
         except Exception as exc:  # noqa: BLE001
             async with db_lock:
-                db.record_deletion_attempt(
+                failure = db.record_deletion_failure(
                     chat_id=chat_id,
                     message_id=message_id,
                     media_key=media_key,
-                    result="failed",
+                    reason=reason,
                     error=str(exc),
                 )
-                db.record_deletion_event(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    event_type="delete_failed",
-                    reason=reason,
-                    result="failed",
-                    detail=str(exc),
-                )
-            log.exception("delete_failed reason=%s chat=%s msg=%s", reason, chat_id, message_id)
+            log.exception(
+                "delete_failed reason=%s chat=%s msg=%s category=%s disposition=%s",
+                reason,
+                chat_id,
+                message_id,
+                failure.category,
+                failure.disposition,
+            )
             return False
 
         async with db_lock:
@@ -1573,6 +1720,182 @@ def run_bot() -> None:
             )
         log.warning("deleted reason=%s chat=%s msg=%s", reason, chat_id, message_id)
         return True
+
+    async def _telethon_delete_message_with_reason(
+        *,
+        client: Any,
+        entity: Any,
+        chat_id: int,
+        message_id: int,
+        media_key: str,
+        reason: str,
+        event_type: str,
+    ) -> bool:
+        async with db_lock:
+            db.add_pending_deletion(
+                chat_id=chat_id,
+                message_id=message_id,
+                media_key=media_key,
+                reason=reason,
+            )
+            db.record_deletion_event(
+                chat_id=chat_id,
+                message_id=message_id,
+                event_type=event_type,
+                reason=reason,
+                result="matched",
+                detail="transport=telethon",
+            )
+
+        dry_run, delete_enabled = await _effective_mode(chat_id)
+        if dry_run:
+            async with db_lock:
+                db.record_deletion_event(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    event_type="skipped_observe_mode",
+                    reason=reason,
+                    result="skipped",
+                    detail="dry_run=1 transport=telethon",
+                )
+            log.warning(
+                "skip_delete reason=%s chat=%s msg=%s dry_run=%s delete_enabled=%s transport=telethon",
+                reason,
+                chat_id,
+                message_id,
+                int(dry_run),
+                int(delete_enabled),
+            )
+            return False
+
+        if not delete_enabled:
+            async with db_lock:
+                db.record_deletion_event(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    event_type="skipped_delete_disabled",
+                    reason=reason,
+                    result="skipped",
+                    detail="delete_enabled=0 transport=telethon",
+                )
+            log.warning(
+                "skip_delete reason=%s chat=%s msg=%s dry_run=%s delete_enabled=%s transport=telethon",
+                reason,
+                chat_id,
+                message_id,
+                int(dry_run),
+                int(delete_enabled),
+            )
+            return False
+
+        try:
+            await client.delete_messages(entity, [int(message_id)])
+        except Exception as exc:  # noqa: BLE001
+            async with db_lock:
+                failure = db.record_deletion_failure(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    media_key=media_key,
+                    reason=reason,
+                    error=str(exc),
+                    detail_prefix="transport=telethon",
+                )
+            log.exception(
+                "telethon_delete_failed reason=%s chat=%s msg=%s category=%s disposition=%s",
+                reason,
+                chat_id,
+                message_id,
+                failure.category,
+                failure.disposition,
+            )
+            return False
+
+        async with db_lock:
+            db.record_deletion_attempt(
+                chat_id=chat_id,
+                message_id=message_id,
+                media_key=media_key,
+                result="success",
+                error=None,
+            )
+            db.remove_pending_deletion(chat_id=chat_id, message_id=message_id)
+            db.record_deletion_event(
+                chat_id=chat_id,
+                message_id=message_id,
+                event_type="delete_succeeded",
+                reason=reason,
+                result="success",
+                detail="transport=telethon",
+            )
+        log.warning("telethon_deleted reason=%s chat=%s msg=%s", reason, chat_id, message_id)
+        return True
+
+    async def _telethon_copy_and_replace_messages(
+        *,
+        client: Any,
+        entity: Any,
+        chat_id: int,
+        messages: list[Any],
+        caption_message_id: int | None,
+        caption_text: str | None,
+        apply_caption_to_all: bool = False,
+    ) -> list[tuple[int, int]] | None:
+        pairs: list[tuple[int, int]] = []
+        new_message_ids: list[int] = []
+        ordered = sorted(
+            messages,
+            key=lambda m: int(getattr(m, "id", 0) or getattr(m, "message_id", 0) or 0),
+        )
+
+        for msg in ordered:
+            msg_id = int(getattr(msg, "id", 0) or getattr(msg, "message_id", 0) or 0)
+            if msg_id <= 0:
+                continue
+
+            caption = None
+            if caption_text is not None and (apply_caption_to_all or caption_message_id == msg_id):
+                caption = caption_text
+
+            try:
+                if caption is None:
+                    sent = await client.forward_messages(entity, msg, entity)
+                else:
+                    sent = await client.send_file(entity, msg.media, caption=caption)
+            except Exception:  # noqa: BLE001
+                log.exception("telethon_copy_message_failed chat=%s msg=%s", chat_id, msg_id)
+                for new_id in new_message_ids:
+                    try:
+                        await client.delete_messages(entity, [new_id])
+                    except Exception:  # noqa: BLE001
+                        pass
+                return None
+
+            if isinstance(sent, list):
+                sent_msg = sent[0] if sent else None
+            else:
+                sent_msg = sent
+            new_id = int(getattr(sent_msg, "id", 0) or getattr(sent_msg, "message_id", 0) or 0)
+            if new_id <= 0:
+                for existing_new_id in new_message_ids:
+                    try:
+                        await client.delete_messages(entity, [existing_new_id])
+                    except Exception:  # noqa: BLE001
+                        pass
+                return None
+
+            new_message_ids.append(new_id)
+            pairs.append((msg_id, new_id))
+
+        for msg in ordered:
+            msg_id = int(getattr(msg, "id", 0) or getattr(msg, "message_id", 0) or 0)
+            if msg_id <= 0:
+                continue
+            try:
+                await client.delete_messages(entity, [msg_id])
+            except Exception:  # noqa: BLE001
+                log.exception("telethon_delete_replaced_message_failed chat=%s msg=%s", chat_id, msg_id)
+
+        return pairs
 
     async def _copy_and_replace_messages(
         *,
@@ -1859,6 +2182,9 @@ def run_bot() -> None:
             "delete_by_text",
             "tag_add",
             "batch_delete",
+            "toggle_source_hide",
+            "source_hide_batch",
+            "source_hide_all",
         } or action.startswith("media_filter"):
             if not await _require_admin(update, context):
                 await query.answer("需要管理员权限", show_alert=True)
@@ -1867,6 +2193,26 @@ def run_bot() -> None:
         if action == "menu":
             await query.answer()
             await _send_main_menu(chat_id=chat_id, context=context, edit_message_id=query.message.message_id)
+            return
+
+        if action == "toggle_source_hide":
+            enabled = not await _source_hide_enabled(chat_id)
+            await _set_source_hide_enabled(chat_id, enabled)
+            await query.answer("已开启" if enabled else "已关闭")
+            await _send_main_menu(chat_id=chat_id, context=context, edit_message_id=query.message.message_id)
+            return
+
+        if action == "source_hide_batch":
+            await query.answer()
+            await _start_source_hide(chat_id, context)
+            return
+
+        if action == "source_hide_all":
+            if update.effective_chat.type != "private":
+                await query.answer("请在管理员私聊中使用", show_alert=True)
+                return
+            await query.answer()
+            await _start_source_hide(chat_id, context, all_chats=True)
             return
 
         if action == "tag_count":
@@ -3447,12 +3793,14 @@ def run_bot() -> None:
                                         blocked_msgs.append((msg, media_type))
                                 if blocked_msgs:
                                     for msg, media_type in blocked_msgs:
-                                        await _delete_message_with_reason(
+                                        await _telethon_delete_message_with_reason(
+                                            client=client,
+                                            entity=entity,
                                             chat_id=chat_id,
                                             message_id=int(getattr(msg, "id", 0) or 0),
                                             media_key=f"mtproto:{media_type}:{getattr(msg, 'id', 0)}",
                                             reason=f"media_blacklist:{media_type}",
-                                            context=context,
+                                            event_type="matched_media_blacklist",
                                         )
                                     state.skipped += len(media_msgs)
                                     return
@@ -3473,12 +3821,14 @@ def run_bot() -> None:
                             if _is_telethon_forwarded(caption_msg):
                                 if _contains_ad_text(caption_text, block_keywords):
                                     for msg in media_msgs:
-                                        await _delete_message_with_reason(
+                                        await _telethon_delete_message_with_reason(
+                                            client=client,
+                                            entity=entity,
                                             chat_id=chat_id,
                                             message_id=int(getattr(msg, "id", 0) or 0),
                                             media_key=f"mtproto:ad:{getattr(msg, 'id', 0)}",
                                             reason="ad_block",
-                                            context=context,
+                                            event_type="matched_ad_block",
                                         )
                                     state.skipped += len(media_msgs)
                                     return
@@ -3515,14 +3865,15 @@ def run_bot() -> None:
 
                             new_tags = [*mapped, *matched]
                             new_caption = _build_tag_caption(cleaned, new_tags)
-                            pairs = await _copy_and_replace_messages(
+                            pairs = await _telethon_copy_and_replace_messages(
+                                client=client,
+                                entity=entity,
                                 chat_id=chat_id,
                                 messages=media_msgs,
                                 caption_message_id=int(getattr(caption_msg, "id", 0) or 0),
                                 caption_text=new_caption,
                                 apply_caption_to_all=True,
-                                context=context,
-                            )
+                                )
                             if not pairs:
                                 state.failed += len(media_msgs)
                                 return
@@ -3560,22 +3911,26 @@ def run_bot() -> None:
                             if getattr(msg, "photo", None) is None and getattr(msg, "document", None) is None:
                                 text = str(getattr(msg, "message", "") or "")
                                 if "text" in blacklist and text and getattr(msg, "action", None) is None:
-                                    await _delete_message_with_reason(
+                                    await _telethon_delete_message_with_reason(
+                                        client=client,
+                                        entity=entity,
                                         chat_id=chat_id,
                                         message_id=int(getattr(msg, "id", 0) or 0),
                                         media_key=f"mtproto:text:{getattr(msg, 'id', 0)}",
                                         reason="media_blacklist:text",
-                                        context=context,
+                                        event_type="matched_text_blacklist",
                                     )
                                     await progress_cb()
                                     continue
                                 if _is_telethon_forwarded(msg) and _contains_ad_text(text, block_keywords):
-                                    await _delete_message_with_reason(
+                                    await _telethon_delete_message_with_reason(
+                                        client=client,
+                                        entity=entity,
                                         chat_id=chat_id,
                                         message_id=int(getattr(msg, "id", 0) or 0),
                                         media_key=f"mtproto:ad:{getattr(msg, 'id', 0)}",
                                         reason="ad_block",
-                                        context=context,
+                                        event_type="matched_ad_block",
                                     )
                                     await progress_cb()
                                     continue
@@ -3949,12 +4304,14 @@ def run_bot() -> None:
                                         blocked_msgs.append((msg, media_type))
                                 if blocked_msgs:
                                     for msg, media_type in blocked_msgs:
-                                        await _delete_message_with_reason(
+                                        await _telethon_delete_message_with_reason(
+                                            client=client,
+                                            entity=entity,
                                             chat_id=chat_id,
                                             message_id=int(getattr(msg, "id", 0) or 0),
                                             media_key=f"mtproto:{media_type}:{getattr(msg, 'id', 0)}",
                                             reason=f"media_blacklist:{media_type}",
-                                            context=context,
+                                            event_type="matched_media_blacklist",
                                         )
                                     state.skipped += len(media_msgs)
                                     return
@@ -3975,12 +4332,14 @@ def run_bot() -> None:
                             if _is_telethon_forwarded(caption_msg):
                                 if _contains_ad_text(caption_text, block_keywords):
                                     for msg in media_msgs:
-                                        await _delete_message_with_reason(
+                                        await _telethon_delete_message_with_reason(
+                                            client=client,
+                                            entity=entity,
                                             chat_id=chat_id,
                                             message_id=int(getattr(msg, "id", 0) or 0),
                                             media_key=f"mtproto:ad:{getattr(msg, 'id', 0)}",
                                             reason="ad_block",
-                                            context=context,
+                                            event_type="matched_ad_block",
                                         )
                                     state.skipped += len(media_msgs)
                                     return
@@ -4029,14 +4388,15 @@ def run_bot() -> None:
                                 state.skipped += len(media_msgs)
                                 return
 
-                            pairs = await _copy_and_replace_messages(
+                            pairs = await _telethon_copy_and_replace_messages(
+                                client=client,
+                                entity=entity,
                                 chat_id=chat_id,
                                 messages=media_msgs,
                                 caption_message_id=int(getattr(caption_msg, "id", 0) or 0),
                                 caption_text=new_caption,
                                 apply_caption_to_all=True,
-                                context=context,
-                            )
+                                )
                             if not pairs:
                                 state.failed += len(media_msgs)
                                 return
@@ -4076,22 +4436,26 @@ def run_bot() -> None:
                             if getattr(msg, "photo", None) is None and getattr(msg, "document", None) is None:
                                 text = str(getattr(msg, "message", "") or "")
                                 if "text" in blacklist and text and getattr(msg, "action", None) is None:
-                                    await _delete_message_with_reason(
+                                    await _telethon_delete_message_with_reason(
+                                        client=client,
+                                        entity=entity,
                                         chat_id=chat_id,
                                         message_id=int(getattr(msg, "id", 0) or 0),
                                         media_key=f"mtproto:text:{getattr(msg, 'id', 0)}",
                                         reason="media_blacklist:text",
-                                        context=context,
+                                        event_type="matched_text_blacklist",
                                     )
                                     await progress_cb()
                                     continue
                                 if _is_telethon_forwarded(msg) and _contains_ad_text(text, block_keywords):
-                                    await _delete_message_with_reason(
+                                    await _telethon_delete_message_with_reason(
+                                        client=client,
+                                        entity=entity,
                                         chat_id=chat_id,
                                         message_id=int(getattr(msg, "id", 0) or 0),
                                         media_key=f"mtproto:ad:{getattr(msg, 'id', 0)}",
                                         reason="ad_block",
-                                        context=context,
+                                        event_type="matched_ad_block",
                                     )
                                     await progress_cb()
                                     continue
@@ -5079,47 +5443,20 @@ def run_bot() -> None:
             )
             return
 
-        deleted = 0
-        failed = 0
-        skipped = 0
-
-        for message_id, media_key, reason in pending:
-            async with db_lock:
-                existing = db.get_deletion_record(chat_id, message_id)
-                if existing is not None and (existing.result == "success" or not config.retry_failed_deletes):
-                    if existing.result == "success":
-                        db.remove_pending_deletion(chat_id=chat_id, message_id=message_id)
-                    skipped += 1
-                    continue
-
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
-            except Exception as exc:  # noqa: BLE001
-                async with db_lock:
-                    db.record_deletion_attempt(
-                        chat_id=chat_id,
-                        message_id=message_id,
-                        media_key=media_key,
-                        result="failed",
-                        error=str(exc),
-                    )
-                failed += 1
-                continue
-
-            async with db_lock:
-                db.record_deletion_attempt(
-                    chat_id=chat_id,
-                    message_id=message_id,
-                    media_key=media_key,
-                    result="success",
-                    error=None,
-                )
-                db.remove_pending_deletion(chat_id=chat_id, message_id=message_id)
-            deleted += 1
+        result = await process_pending_deletions(
+            db=db,
+            bot=context.bot,
+            chat_id=chat_id,
+            pending=pending,
+            retry_failed=config.retry_failed_deletes,
+        )
 
         await context.bot.send_message(
             chat_id=chat_id,
-            text=f"flush 完成：deleted={deleted} failed={failed} skipped={skipped} total={len(pending)}",
+            text=(
+                f"flush 完成：deleted={result.deleted} terminal={result.terminal} "
+                f"failed={result.failed} skipped={result.skipped} total={len(pending)}"
+            ),
         )
 
     async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -5128,6 +5465,8 @@ def run_bot() -> None:
             return
         chat_id = int(message.chat.id)
         if not _chat_allowed(config, chat_id):
+            return
+        if is_bot_forwarding_source(chat_id):
             return
         pending_tag = tag_add_inputs.get(chat_id)
         if pending_tag is not None:
@@ -5273,6 +5612,8 @@ def run_bot() -> None:
 
         if not _chat_allowed(config, item.chat_id):
             return
+        if is_bot_forwarding_source(item.chat_id):
+            return
 
         blacklist = await _effective_media_blacklist(item.chat_id)
         blocked_type = _normalize_media_type(item.media_type)
@@ -5409,22 +5750,20 @@ def run_bot() -> None:
             await context.bot.delete_message(chat_id=item.chat_id, message_id=delete_id)
         except Exception as exc:  # noqa: BLE001
             async with db_lock:
-                db.record_deletion_attempt(
+                failure = db.record_deletion_failure(
                     chat_id=item.chat_id,
                     message_id=delete_id,
                     media_key=item.media_key,
-                    result="failed",
+                    reason=decision.reason,
                     error=str(exc),
                 )
-                db.record_deletion_event(
-                    chat_id=item.chat_id,
-                    message_id=delete_id,
-                    event_type="delete_failed",
-                    reason=decision.reason,
-                    result="failed",
-                    detail=str(exc),
-                )
-            log.exception("delete_failed chat=%s msg=%s", item.chat_id, delete_id)
+            log.exception(
+                "delete_failed chat=%s msg=%s category=%s disposition=%s",
+                item.chat_id,
+                delete_id,
+                failure.category,
+                failure.disposition,
+            )
             return
 
         async with db_lock:
@@ -5453,6 +5792,7 @@ def run_bot() -> None:
         )
 
     async def _on_startup(application: Application) -> None:
+        nonlocal heartbeat_task
         try:
             keywords = _parse_text_block_file(_text_block_global_path())
             log.info("startup_text_block_loaded count=%s", len(keywords))
@@ -5464,6 +5804,12 @@ def run_bot() -> None:
             log.info("startup_db_check ok")
         except Exception:  # noqa: BLE001
             log.exception("startup_db_check_failed")
+
+        try:
+            reconciled = db.reconcile_terminal_pending_deletions()
+            log.info("startup_terminal_pending_reconciled count=%s", reconciled)
+        except Exception:  # noqa: BLE001
+            log.exception("startup_terminal_pending_reconcile_failed")
 
         commands_common = [
             BotCommand("start", "开始/说明"),
@@ -5493,6 +5839,8 @@ def run_bot() -> None:
             BotCommand("scan_status", "扫描状态"),
             BotCommand("scan_stop", "停止扫描"),
             BotCommand("flush", "清理待删队列"),
+            BotCommand("source_hide", "隐藏当前群组转发来源"),
+            BotCommand("source_hide_toggle", "切换自动隐藏来源"),
         ]
         commands_private = [
             *commands_common,
@@ -5503,6 +5851,7 @@ def run_bot() -> None:
             BotCommand("session_password", "提交两步验证密码"),
             BotCommand("session_logout", "注销用户账号"),
             BotCommand("session_reset", "重置session(删除本地文件)"),
+            BotCommand("source_hide_all", "批量隐藏全部管理群组来源"),
         ]
         try:
             await application.bot.set_my_commands(commands_common, scope=BotCommandScopeDefault())
@@ -5518,12 +5867,59 @@ def run_bot() -> None:
             except Exception as exc:  # noqa: BLE001
                 log.warning("startup_notify_failed admin_id=%s error=%s", admin_id, exc)
 
-    builder = Application.builder().token(config.bot_token)
+        set_bot_runtime_state("running", "telegram startup completed")
+        heartbeat_task = asyncio.create_task(
+            _runtime_heartbeat_loop(application),
+            name="telegram-runtime-heartbeat",
+        )
+
+    async def _on_shutdown(application: Application) -> None:
+        nonlocal heartbeat_task
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
+            try:
+                await heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            heartbeat_task = None
+        await forwarding_engine.shutdown()
+
+    async def _forward_bot_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        message = update.effective_message
+        if message is None:
+            return
+        message = await _maybe_hide_source(message, context)
+        await forwarding_engine.handle(message, context.bot)
+
+    async def _cmd_source_hide(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if update.effective_chat is None or not await _require_admin(update, context):
+            return
+        await _start_source_hide(int(update.effective_chat.id), context)
+
+    async def _cmd_source_hide_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if update.effective_chat is None or update.effective_chat.type != "private":
+            return
+        if not await _require_admin(update, context):
+            return
+        await _start_source_hide(int(update.effective_chat.id), context, all_chats=True)
+
+    async def _cmd_source_hide_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if update.effective_chat is None or not await _require_admin(update, context):
+            return
+        chat_id = int(update.effective_chat.id)
+        enabled = not await _source_hide_enabled(chat_id)
+        await _set_source_hide_enabled(chat_id, enabled)
+        await context.bot.send_message(chat_id=chat_id, text=f"自动隐藏来源已{'开启' if enabled else '关闭'}")
+
+    builder = _configure_application_builder(Application.builder().token(config.bot_token))
     if hasattr(builder, "post_init"):
         builder = builder.post_init(_on_startup)
     else:
         log.warning("ApplicationBuilder 缺少 post_init，无法执行启动初始化")
+    if hasattr(builder, "post_shutdown"):
+        builder = builder.post_shutdown(_on_shutdown)
     application = builder.build()
+    application.add_error_handler(_handle_application_error)
     application.add_handler(
         ChatMemberHandler(_on_my_chat_member, chat_member_types=ChatMemberHandler.MY_CHAT_MEMBER),
         group=-2,
@@ -5556,6 +5952,9 @@ def run_bot() -> None:
     application.add_handler(CommandHandler("tag_stop", _cmd_tag_stop))
     application.add_handler(CommandHandler("text_block", _cmd_text_block))
     application.add_handler(CommandHandler("flush", _cmd_flush))
+    application.add_handler(CommandHandler("source_hide", _cmd_source_hide))
+    application.add_handler(CommandHandler("source_hide_toggle", _cmd_source_hide_toggle))
+    application.add_handler(CommandHandler("source_hide_all", _cmd_source_hide_all))
     application.add_handler(CommandHandler("session_status", _cmd_session_status))
     application.add_handler(CommandHandler("session_login", _cmd_session_login))
     application.add_handler(CommandHandler("session_qr", _cmd_session_qr))
@@ -5566,6 +5965,7 @@ def run_bot() -> None:
     application.add_handler(CallbackQueryHandler(_handle_callback, pattern="^cm:"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     application.add_handler(MessageHandler(filters.ATTACHMENT, on_media))
+    application.add_handler(MessageHandler(filters.ALL, _forward_bot_message), group=1)
 
     log.info(
         "starting bot default_dry_run=%s default_delete_duplicates=%s allow_chat_ids=%s db=%s",
@@ -5574,4 +5974,4 @@ def run_bot() -> None:
         sorted(config.allow_chat_ids) if config.allow_chat_ids else None,
         config.db_path,
     )
-    application.run_polling(allowed_updates=Update.ALL_TYPES, stop_signals=())
+    application.run_polling(allowed_updates=_BOT_ALLOWED_UPDATES, stop_signals=())

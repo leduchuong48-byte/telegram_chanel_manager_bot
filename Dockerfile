@@ -1,7 +1,8 @@
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    APP_ROOT=/app
 
 WORKDIR /app
 
@@ -13,7 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN addgroup --system app && adduser --system --ingroup app app
 
 COPY requirements.txt requirements-scan.txt ./
-RUN pip install --no-cache-dir -r requirements.txt -r requirements-scan.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-scan.txt -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    && pip check
 
 COPY tg_media_dedupe_bot ./tg_media_dedupe_bot
 COPY app ./app

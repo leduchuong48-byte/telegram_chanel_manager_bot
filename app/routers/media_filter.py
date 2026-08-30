@@ -95,6 +95,12 @@ def _normalize_payload(raw: dict[str, Any]) -> MediaFilterSettings:
     )
 
 
+def _normalize_override(raw: dict[str, Any]) -> dict[str, Any]:
+    normalized = _normalize_payload(raw).model_dump()
+    allowed_fields = {"size_limit_mb", "duration_limit_min", "media_types", "filter_mode"}
+    return {key: normalized[key] for key in allowed_fields if key in raw}
+
+
 def _empty_storage() -> dict[str, Any]:
     return {
         "default": MediaFilterSettings().model_dump(),
@@ -120,7 +126,7 @@ def _normalize_storage(raw: Any) -> dict[str, Any]:
             token = str(key or "").strip()
             if not token or not isinstance(value, dict):
                 continue
-            normalized = _normalize_payload(value).model_dump(exclude_none=True)
+            normalized = _normalize_override(value)
             overrides[token] = normalized
     storage["overrides"] = overrides
     return storage
@@ -141,7 +147,7 @@ def _resolve_settings_for_target(storage: dict[str, Any], target: str | None) ->
         return default_settings, False
 
     merged = default_settings.model_dump()
-    merged.update(_normalize_payload(raw_override).model_dump())
+    merged.update(_normalize_override(raw_override))
     return MediaFilterSettings(**merged), True
 
 

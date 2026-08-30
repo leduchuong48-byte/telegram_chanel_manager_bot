@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shutil
+import threading
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,12 +16,13 @@ from typing import Any, AsyncIterator
 from fastapi import HTTPException, status
 
 from app.core.runtime_settings import load_runtime_settings
+from tg_media_dedupe_bot.paths import resolve_app_path, telethon_session_db_path
 from telethon import TelegramClient
 from telethon.tl.types import Channel, ChannelForbidden, Chat, ChatForbidden
 
 logger = logging.getLogger(__name__)
 
-_WEB_TELETHON_LOCK = asyncio.Lock()
+_WEB_TELETHON_LOCK = threading.RLock()
 _WEB_TELETHON_TIMEOUT_SECONDS = 30
 
 
@@ -152,9 +154,7 @@ async def discover_dialog_targets(
 
 def _session_db_path(raw_path: Path) -> Path:
     """Normalize Telethon session DB file path."""
-    if raw_path.suffix:
-        return raw_path
-    return raw_path.with_suffix(".session")
+    return telethon_session_db_path(raw_path)
 
 
 def resolve_web_session_path(bot_config: dict[str, Any]) -> Path:
@@ -173,7 +173,7 @@ def resolve_web_session_path(bot_config: dict[str, Any]) -> Path:
         or os.getenv("WEB_TG_SESSION", "")
         or "./sessions/webui"
     ).strip()
-    path = Path(raw).expanduser()
+    path = resolve_app_path(raw)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
     except OSError:
@@ -200,7 +200,7 @@ def bootstrap_web_session(bot_config: dict[str, Any], web_session_path: Path) ->
         return
 
     runtime_raw = str(os.getenv("TG_SESSION", "") or "./sessions/user").strip()
-    runtime_db = _session_db_path(Path(runtime_raw).expanduser())
+    runtime_db = _session_db_path(Path(runtime_raw))
     if not runtime_db.exists():
         return
 
@@ -275,9 +275,22 @@ async def safe_disconnect(client: TelegramClient) -> None:
 
 @asynccontextmanager
 async def web_telethon_lock() -> AsyncIterator[None]:
-    """Serialize access to web-side Telethon session files."""
-    async with _WEB_TELETHON_LOCK:
+    """Serialize access to web-side Telethon session files across threads."""
+    acquired = False
+    acquired = await asyncio.to_thread(_WEB_TELETHON_LOCK.acquire, True, _WEB_TELETHON_TIMEOUT_SECONDS)
+    if not acquired:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Web Telethon 会话繁忙，请稍后重试",
+        )
+    try:
         yield
+    finally:
+        if acquired:
+            try:
+                _WEB_TELETHON_LOCK.release()
+            except RuntimeError:
+                logger.warning("web_telethon_lock_release_skipped reason=not_acquired")
 
 
 @asynccontextmanager

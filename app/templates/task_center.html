@@ -430,6 +430,26 @@
         }
     }
 
+    function applyFiltersFromQuery() {
+        const params = new URLSearchParams(window.location.search);
+        const taskType = (params.get('task_type') || '').trim();
+        const status = (params.get('status') || '').trim();
+        const chatId = (params.get('chat_id') || '').trim();
+
+        if (taskType) {
+            const select = document.getElementById('typeFilter');
+            if (select) document.getElementById('typeFilter').value = taskType;
+        }
+        if (status) {
+            const select = document.getElementById('statusFilter');
+            if (select) document.getElementById('statusFilter').value = status;
+        }
+        if (chatId) {
+            const input = document.getElementById('chatFilter');
+            if (input) document.getElementById('chatFilter').value = chatId;
+        }
+    }
+
     async function openTaskFromQuery() {
         const params = new URLSearchParams(window.location.search);
         const jobId = (params.get('task') || '').trim();
@@ -455,6 +475,7 @@
         document.getElementById(id).addEventListener('change', loadJobs);
     });
 
+    applyFiltersFromQuery();
     refreshAll().then(openTaskFromQuery);
     setInterval(refreshAll, 4000);
 })();

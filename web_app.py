@@ -16,6 +16,7 @@ from app.core import scheduler
 from app.core.config_manager import ConfigManager
 from app.main import create_app
 from tg_media_dedupe_bot import telegram_bot
+from tg_media_dedupe_bot.health import preflight_or_raise, set_bot_runtime_state
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +171,9 @@ async def reload_services(config: dict[str, Any]) -> None:
 
     _apply_bot_env(bot_config)
     updated = telegram_bot.apply_runtime_config(bot_config)
+    forwarding_rule_ids = telegram_bot.apply_forwarding_rules(
+        config.get("forwarding_rules", []) if isinstance(config, dict) else []
+    )
 
     media_filters = config.get("web_media_filters", {}) if isinstance(config, dict) else {}
     _apply_media_filter_config(media_filters)
@@ -182,6 +186,7 @@ async def reload_services(config: dict[str, Any]) -> None:
         logger.info("runtime_config_reloaded fields=%s", ",".join(updated))
     else:
         logger.info("runtime_config_reloaded fields=none")
+    logger.info("forwarding_rules_reloaded count=%s", len(forwarding_rule_ids))
 
 
 async def run_web_server(config_manager: ConfigManager):
@@ -214,6 +219,7 @@ async def main_async():
     config = config_manager.get_config()
     _apply_bot_env(config.get("bot", {}))
     _apply_media_filter_config(config.get("web_media_filters", {}))
+    preflight_or_raise()
     
     # Setup logging
     log_level = os.getenv("LOG_LEVEL", "INFO")
@@ -229,13 +235,25 @@ async def main_async():
     if web_enabled:
         logger.info("Web admin panel is enabled")
         # Run both bot and web server
-        bot_task = asyncio.create_task(asyncio.to_thread(telegram_bot.run_bot))
+        async def run_bot_supervised() -> None:
+            set_bot_runtime_state("running", "bot task started")
+            try:
+                await asyncio.to_thread(telegram_bot.run_bot)
+            except Exception as exc:  # noqa: BLE001
+                set_bot_runtime_state("fail", str(exc))
+                raise
+            finally:
+                if not sys.exc_info()[1]:
+                    set_bot_runtime_state("stopped", "bot task exited")
+
+        bot_task = asyncio.create_task(run_bot_supervised())
         web_task = asyncio.create_task(run_web_server(config_manager))
         
         await asyncio.gather(bot_task, web_task)
     else:
         logger.info("Web admin panel is disabled, running bot only")
         # Run only the bot
+        set_bot_runtime_state("running", "bot task started")
         await asyncio.to_thread(telegram_bot.run_bot)
 
 

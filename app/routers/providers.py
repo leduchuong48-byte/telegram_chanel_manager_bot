@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -12,6 +15,8 @@ from pydantic import BaseModel, Field
 from app.core.config_manager import ConfigManager
 from app.core.dependencies import get_current_user
 from app.core.models import MessageResponse
+from app.services import runtime_policy
+from app.services.ai_router import route_ai_request
 from tg_media_dedupe_bot.db import Database
 
 router = APIRouter(prefix="/api/providers", tags=["providers"])
@@ -114,6 +119,91 @@ def _db(config: dict) -> Database:
     return Database(_resolve_db_path(config))
 
 
+def _coerce_int(value: object, *, default: int, minimum: int) -> int:
+    try:
+        result = int(str(value).strip())
+    except Exception:  # noqa: BLE001
+        result = default
+    return max(minimum, result)
+
+
+def _normalize_fallbacks(value: object) -> list[str]:
+    items: list[str]
+    if isinstance(value, list):
+        items = [str(item).strip() for item in value]
+    elif isinstance(value, str):
+        items = [part.strip() for part in value.split(',')]
+    else:
+        items = []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        result.append(item)
+    return result
+
+
+def _load_runtime_policy(config: dict) -> tuple[int, int, list[str]]:
+    ai_runtime = config.get('ai_runtime', {}) if isinstance(config, dict) else {}
+    if not isinstance(ai_runtime, dict):
+        ai_runtime = {}
+    timeout_ms = _coerce_int(ai_runtime.get('timeout_ms', 10000), default=10000, minimum=1000)
+    retry_count = _coerce_int(ai_runtime.get('retry_count', 1), default=1, minimum=0)
+    fallback_provider_keys = _normalize_fallbacks(ai_runtime.get('fallback_provider_keys'))
+    return timeout_ms, retry_count, fallback_provider_keys
+
+
+class _HttpProviderAdapter:
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    def generate(self, *, provider_key: str, model_key: str, prompt: str, timeout_ms: int) -> dict:
+        provider = self._db.get_provider(provider_key=provider_key)
+        if provider is None:
+            raise RuntimeError(f'provider_missing:{provider_key}')
+
+        base_url = str(provider.get('base_url') or '').strip()
+        if not base_url:
+            raise RuntimeError(f'provider_base_url_missing:{provider_key}')
+        if base_url.lower().startswith('fail://'):
+            raise TimeoutError(f'provider_timeout:{provider_key}')
+
+        secret = _read_provider_secret(provider_key)
+        api_key = str(secret.get('api_key') or '').strip()
+        if not api_key:
+            return {'text': 'ok_no_api_key_skip', 'latency_ms': 0}
+
+        endpoint = f"{base_url.rstrip('/')}/models"
+        request = Request(
+            endpoint,
+            method='GET',
+            headers={
+                'Authorization': f'Bearer {api_key}',
+                'Accept': 'application/json',
+                'User-Agent': 'channel-manager-bot/ai-provider-test',
+            },
+        )
+
+        started = time.time()
+        timeout_seconds = max(1.0, float(timeout_ms) / 1000.0)
+        try:
+            with urlopen(request, timeout=timeout_seconds) as response:  # nosec B310
+                status_code = int(getattr(response, 'status', 200) or 200)
+                if status_code >= 400:
+                    raise RuntimeError(f'provider_http_status:{status_code}')
+                response.read()
+        except TimeoutError:
+            raise
+        except HTTPError as exc:
+            raise RuntimeError(f'provider_http_status:{int(exc.code)}') from exc
+        except URLError as exc:
+            raise RuntimeError(f'provider_network_error:{exc.reason}') from exc
+
+        latency_ms = int((time.time() - started) * 1000)
+        return {'text': 'ok_http', 'latency_ms': max(1, latency_ms)}
+
 
 def _normalize_provider_key(raw: str) -> str:
     value = str(raw or "").strip().lower()
@@ -140,6 +230,16 @@ def _provider_secret_path(provider_key: str) -> Path:
 
 def _has_provider_api_key(provider_key: str) -> bool:
     return _provider_secret_path(provider_key).exists()
+
+
+def _read_provider_secret(provider_key: str) -> dict:
+    path = _provider_secret_path(provider_key)
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 def _write_provider_api_key(*, provider_key: str, api_key: str, base_url: str, default_model: str) -> None:
@@ -276,23 +376,37 @@ async def test_provider_connection(
     _: Annotated[str, Depends(get_current_user)],
 ) -> MessageResponse:
     manager = _get_config_manager()
+    config = manager.get_config()
     normalized_key = _normalize_provider_key(provider_key)
-    db = _db(manager.get_config())
+    db = _db(config)
     try:
         provider = db.get_provider(provider_key=normalized_key)
         if provider is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider 不存在")
-        db.mark_provider_test_result(provider_key=normalized_key, status="ok")
-        default_model = str(provider.get("default_model") or "").strip()
-        model_key = f"{normalized_key}:{default_model}" if default_model else f"{normalized_key}:_none"
-        db.record_ai_request_event(
-            provider_key=normalized_key,
-            model_key=model_key,
-            success=True,
-            fallback_used=False,
-            downgrade_used=False,
-            latency_ms=50,
+
+        timeout_ms, retry_count, configured_fallbacks = _load_runtime_policy(config)
+        provider_chain = runtime_policy.resolve_provider_chain(
+            primary_provider_key=normalized_key,
+            configured_fallbacks=configured_fallbacks,
         )
+        provider_chain = [key for key in provider_chain if db.get_provider(provider_key=key) is not None]
+        if not provider_chain:
+            provider_chain = [normalized_key]
+
+        default_model = str(provider.get("default_model") or "").strip()
+        effective_model_key = f"{normalized_key}:{default_model}" if default_model else f"{normalized_key}:_none"
+
+        route_ai_request(
+            db=db,
+            adapter=_HttpProviderAdapter(db),
+            provider_chain=provider_chain,
+            model_key=effective_model_key,
+            prompt="provider_connection_test",
+            retry_count=retry_count,
+            timeout_ms=timeout_ms,
+        )
+
+        db.mark_provider_test_result(provider_key=normalized_key, status="ok")
     finally:
         db.close()
     return MessageResponse(success=True, message="连接测试完成")
@@ -304,12 +418,36 @@ async def probe_provider_capabilities(
     _: Annotated[str, Depends(get_current_user)],
 ) -> MessageResponse:
     manager = _get_config_manager()
+    config = manager.get_config()
     normalized_key = _normalize_provider_key(provider_key)
-    db = _db(manager.get_config())
+    db = _db(config)
     try:
         provider = db.get_provider(provider_key=normalized_key)
         if provider is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="provider 不存在")
+
+        timeout_ms, retry_count, configured_fallbacks = _load_runtime_policy(config)
+        provider_chain = runtime_policy.resolve_provider_chain(
+            primary_provider_key=normalized_key,
+            configured_fallbacks=configured_fallbacks,
+        )
+        provider_chain = [key for key in provider_chain if db.get_provider(provider_key=key) is not None]
+        if not provider_chain:
+            provider_chain = [normalized_key]
+
+        default_model = str(provider.get("default_model") or "").strip()
+        effective_model_key = f"{normalized_key}:{default_model}" if default_model else f"{normalized_key}:_none"
+
+        route_ai_request(
+            db=db,
+            adapter=_HttpProviderAdapter(db),
+            provider_chain=provider_chain,
+            model_key=effective_model_key,
+            prompt="provider_capability_probe",
+            retry_count=retry_count,
+            timeout_ms=timeout_ms,
+        )
+
         supports_responses = str(provider.get("provider_type") or "") == "openai_compatible"
         capabilities_json = json.dumps(
             {
@@ -323,16 +461,6 @@ async def probe_provider_capabilities(
             status="ok",
             supports_responses=supports_responses,
             capabilities_json=capabilities_json,
-        )
-        default_model = str(provider.get("default_model") or "").strip()
-        model_key = f"{normalized_key}:{default_model}" if default_model else f"{normalized_key}:_none"
-        db.record_ai_request_event(
-            provider_key=normalized_key,
-            model_key=model_key,
-            success=True,
-            fallback_used=False,
-            downgrade_used=False,
-            latency_ms=80,
         )
     finally:
         db.close()

@@ -1,0 +1,937 @@
+{% extends "base.html" %}
+
+{% block page_kicker %}Content Governance{% endblock %}
+{% block page_title %}消息风险检查{% endblock %}
+{% block page_subtitle %}把可疑消息粘贴进来，系统会自动检查，并给出处理建议。{% endblock %}
+{% block page_mode %}page-editor{% endblock %}
+
+{% block content %}
+<style>
+    .ops-grid { display: grid; gap: 16px; }
+    .flow-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+    .flow-chip {
+        border: 1px solid var(--border-soft);
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        background: rgba(255,255,255,0.88);
+        color: var(--text-soft);
+    }
+    .secondary-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .secondary-tab {
+        border: 1px solid var(--border-soft);
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 700;
+        background: rgba(255,255,255,0.88);
+        color: var(--text-soft);
+        cursor: pointer;
+    }
+    .secondary-tab.active { color: var(--accent); border-color: rgba(10, 120, 234, 0.32); background: var(--accent-soft); }
+    .ops-panel { display: none; margin-top: 12px; }
+    .ops-panel.active { display: block; }
+    .ops-card { border: 1px solid var(--border-soft); border-radius: 14px; background: rgba(255,255,255,0.86); padding: 12px; display: grid; gap: 8px; }
+    .ops-card h4 { font-size: 14px; font-weight: 800; }
+    .ops-card p { font-size: 12px; color: var(--text-faint); }
+    .state-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+    .state-item { border: 1px solid var(--border-soft); border-radius: 10px; padding: 8px; font-size: 12px; background: rgba(248,250,252,0.9); }
+    .state-item.active { border-color: rgba(10, 120, 234, 0.34); background: var(--accent-soft); }
+    .ops-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .ops-links { display: flex; gap: 10px; flex-wrap: wrap; }
+    .ops-textarea, .ops-input, .ops-select {
+        border: 1px solid var(--border-soft);
+        border-radius: 12px;
+        padding: 10px 12px;
+        width: 100%;
+        background: rgba(255,255,255,0.9);
+        color: var(--text);
+        font-size: 13px;
+    }
+    .ops-textarea { min-height: 96px; resize: vertical; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--text-soft); }
+    .keyword-list { display: flex; flex-wrap: wrap; gap: 8px; }
+    .keyword-chip { border: 1px solid var(--border-soft); border-radius: 999px; padding: 6px 10px; font-size: 12px; background: rgba(248,250,252,0.9); display: inline-flex; gap: 6px; align-items: center; }
+    .table-wrap { overflow: auto; border: 1px solid var(--border-soft); border-radius: 12px; background: rgba(255,255,255,0.9); }
+    .table { width: 100%; border-collapse: collapse; min-width: 760px; }
+    .table th, .table td { padding: 8px 10px; border-bottom: 1px solid var(--border-soft); text-align: left; font-size: 12px; }
+    .table th { color: var(--text-faint); }
+    .ops-toast { position: fixed; right: 20px; bottom: 20px; background: rgba(15,23,42,0.92); color: #fff; padding: 10px 12px; border-radius: 10px; font-size: 12px; z-index: 9999; display: none; }
+</style>
+
+<div class="ops-grid">
+    <section class="surface" style="padding: 16px;">
+        <h3>使用流程</h3>
+        <div class="flow-strip" style="margin-top: 10px;">
+            <span class="flow-chip">1. 粘贴消息</span>
+            <span class="flow-chip">2. 开始检查</span>
+            <span class="flow-chip">3. 查看建议并处理</span>
+        </div>
+        <p style="margin-top: 12px; color: var(--text-faint); font-size: 13px;">适合非技术运营快速判断可疑内容，系统会自动完成规则检查和进一步分析。</p>
+    </section>
+
+    <section class="surface" style="padding: 16px;">
+        <h3>模块工作区</h3>
+        <div class="secondary-tabs" id="contentOpsTabs">
+            <button class="secondary-tab active" data-panel="panel-tag-governance">标签治理</button>
+            <button class="secondary-tab" data-panel="panel-ad-governance">广告治理</button>
+            <button class="secondary-tab" data-panel="panel-blacklist">屏蔽词管理</button>
+            <button class="secondary-tab" data-panel="panel-sanitize">消息净化</button>
+        </div>
+
+        <div class="ops-panel active" id="panel-tag-governance">
+            <div class="ops-card">
+                <h4>标签治理</h4>
+                <p>沿用现有 AI 标签清理能力，纳入统一治理状态模型与任务追踪。当前主入口可继续通过标签维护页完成高频操作。</p>
+                <div class="ops-actions"><a class="btn" href="/tags">打开标签维护（过渡入口）</a></div>
+            </div>
+        </div>
+
+        <div class="ops-panel" id="panel-ad-governance">
+            <div class="ops-card">
+                <h4>消息风险检查</h4>
+                <p id="adStateCurrent">当前进度：等待开始</p>
+                <div class="state-list" id="adStateList">
+                    <div class="state-item" data-state="checking">正在检查消息，请稍候...</div>
+                    <div class="state-item" data-state="analyzing">系统会先检查明显风险内容，再进一步分析可疑消息。</div>
+                    <div class="state-item" data-state="review">等待人工确认</div>
+                    <div class="state-item" data-state="done">处理完成</div>
+                </div>
+
+                <div class="mono" id="riskCheckEmptyState">V1 真实群组操作台：选择群组和扫描范围后，系统会执行真实扫描并返回可操作结果。</div>
+                <div class="ops-actions">
+                    <select id="adGroupSelect" class="ops-select" style="max-width: 300px;">
+                        <option value="">选择群组（仅显示可维护目标）</option>
+                    </select>
+                    <select id="adScanRange" class="ops-select" style="max-width: 240px;">
+                        <option value="latest_20">最近 20 条</option>
+                        <option value="latest_50" selected>最近 50 条</option>
+                        <option value="latest_100">最近 100 条</option>
+                        <option value="latest_300">最近 300 条</option>
+                        <option value="full_accessible">全量扫描（可访问范围）</option>
+                        <option value="custom">自定义条数</option>
+                    </select>
+                    <input id="adCustomScanLimit" class="ops-input" style="max-width: 160px; display:none;" placeholder="自定义条数" value="500">
+                    <button class="btn btn-primary" id="adStartCheckBtn" type="button">发起真实扫描</button>
+                    <button class="btn btn-danger" id="adCancelScanBtn" type="button" style="display:none;">取消扫描</button>
+                    <button class="btn" id="adRefreshTargetsBtn" type="button">刷新群组</button>
+                    <a class="btn" id="adOpenTaskCenterBtn" href="/task_center?task_type=ad_detection">查看历史处理记录</a>
+                </div>
+                <div class="mono" id="adInputCount">当前模型：读取中...</div>
+                <div class="mono" id="adContextInfo">当前群组：- ｜ 当前范围：- ｜ 当前阶段：等待开始</div>
+                <div class="ops-actions">
+                    <select id="adActionFilter" class="ops-select" style="max-width: 220px;">
+                        <option value="">处理建议：全部</option>
+                        <option value="block">建议拦截</option>
+                        <option value="review">建议人工复核</option>
+                        <option value="allow">建议放行</option>
+                        <option value="sanitize">建议净化后再用</option>
+                    </select>
+                    <button class="btn" id="adPagePrevBtn" type="button">上一页</button>
+                    <button class="btn" id="adPageNextBtn" type="button">下一页</button>
+                </div>
+                <div class="mono" id="adResultSummary">请选择群组并点击“发起真实扫描”。</div>
+                <div class="table-wrap">
+                    <table class="table" id="adResultTable">
+                        <thead>
+                            <tr>
+                                <th>消息ID</th>
+                                <th>风险判断</th>
+                                <th>判断原因</th>
+                                <th>建议处理</th>
+                                <th>判断把握</th>
+                                <th>补充说明</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adResultTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="ops-card">
+                <h4>处理记录</h4>
+                <div class="ops-actions">
+                    <button class="btn" id="adDecisionRefreshBtn" type="button">刷新决策记录</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="table" id="adDecisionsTable">
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>消息ID</th>
+                                <th>动作</th>
+                                <th>状态</th>
+                                <th>原因</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adDecisionsTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="ops-card">
+                <h4>规则候选池</h4>
+                <p>拦截/净化后自动提取候选规则，运营可人工批准入库或拒绝。</p>
+                <div class="state-list" id="ruleCandidatesStats">
+                    <div class="state-item" data-status-filter="pending" role="button" tabindex="0" title="点击筛选待处理">待处理：<strong id="ruleCandidatesCountPending">0</strong></div>
+                    <div class="state-item" data-status-filter="approved" role="button" tabindex="0" title="点击筛选已批准">已批准：<strong id="ruleCandidatesCountApproved">0</strong></div>
+                    <div class="state-item" data-status-filter="rejected" role="button" tabindex="0" title="点击筛选已拒绝">已拒绝：<strong id="ruleCandidatesCountRejected">0</strong></div>
+                </div>
+                <div class="ops-actions">
+                    <select id="ruleCandidatesStatusFilter" class="ops-select" style="max-width: 220px;">
+                        <option value="">候选状态：全部</option>
+                        <option value="pending">待处理</option>
+                        <option value="approved">已批准</option>
+                        <option value="rejected">已拒绝</option>
+                    </select>
+                    <button class="btn" id="ruleCandidatesRefreshBtn" type="button">刷新候选</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="table" id="ruleCandidatesTable">
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>候选类型</th>
+                                <th>候选值</th>
+                                <th>状态</th>
+                                <th>来源决策</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ruleCandidatesTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="ops-panel" id="panel-blacklist">
+            <div class="ops-card">
+                <h4>屏蔽词管理</h4>
+                <p>管理已生效规则、候选词、命中统计与来源分析。当前支持 source/note 字段，便于规则沉淀回溯。</p>
+                <div class="ops-actions">
+                    <input id="blacklistKeywordInput" class="ops-input" placeholder="关键词，例如：博彩">
+                    <input id="blacklistSourceInput" class="ops-input" placeholder="来源，例如：ai_suggested 或 manual">
+                    <input id="blacklistNoteInput" class="ops-input" placeholder="备注，例如：from ad pipeline">
+                    <button class="btn btn-primary" id="blacklistAddBtn" type="button">添加屏蔽词</button>
+                    <button class="btn" id="blacklistRefreshBtn" type="button">刷新列表</button>
+                    <button class="btn" id="blacklistExportBtn" type="button">导出</button>
+                    <button class="btn" id="blacklistImportBtn" type="button">导入</button>
+                </div>
+                <textarea id="blacklistImportText" class="ops-textarea" placeholder="导入格式：关键词\t来源\t备注（每行一条）"></textarea>
+                <div class="keyword-list" id="blacklistKeywords"></div>
+            </div>
+        </div>
+
+        <div class="ops-panel" id="panel-sanitize">
+            <div class="ops-card">
+                <h4>消息净化</h4>
+                <p>用于广告信息修正建议与差异预览。默认策略：生成建议 -> 人工确认 -> 应用，避免误改核心消息内容。</p>
+                <div class="mono">当前版本为流程占位，后续接入差异预览与审核动作。</div>
+            </div>
+        </div>
+    </section>
+
+    <section class="surface" style="padding: 16px;">
+        <h3>关联入口</h3>
+        <div class="ops-links" style="margin-top: 10px;">
+            <a class="btn" href="/task_center">进入任务中心</a>
+            <a class="btn" href="/chat_visibility">进入可见性诊断</a>
+            <a class="btn" href="/bot_settings">打开 Bot 设置</a>
+            <a class="btn" href="/content_ops_docs">查看内容治理文档</a>
+        </div>
+    </section>
+</div>
+<div id="opsToast" class="ops-toast"></div>
+{% endblock %}
+
+{% block extra_script %}
+<script>
+(function () {
+    const tabs = Array.from(document.querySelectorAll('#contentOpsTabs .secondary-tab'));
+    const panels = Array.from(document.querySelectorAll('.ops-panel'));
+
+    function token() { return localStorage.getItem('token'); }
+    function redirectToLogin() {
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+    }
+
+    async function fetchJson(url, options = {}) {
+        const t = token();
+        if (!t) {
+            redirectToLogin();
+            throw new Error('unauthorized');
+        }
+        const timeoutMs = Number(options.timeoutMs || 20000);
+        const controller = new AbortController();
+        const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            const headers = Object.assign({}, options.headers || {}, { Authorization: `Bearer ${t}` });
+            const requestOptions = Object.assign({}, options, { headers, signal: controller.signal });
+            delete requestOptions.timeoutMs;
+            const resp = await fetch(url, requestOptions);
+            if (resp.status === 401) {
+                redirectToLogin();
+                throw new Error('unauthorized');
+            }
+            const payload = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+                throw new Error(payload.detail || payload.message || '请求失败');
+            }
+            return payload;
+        } catch (err) {
+            if (err && err.name === 'AbortError') {
+                throw new Error('请求超时，请稍后重试');
+            }
+            throw err;
+        } finally {
+            window.clearTimeout(timer);
+        }
+    }
+
+    function activatePanel(panelId) {
+        tabs.forEach((tab) => tab.classList.toggle('active', tab.getAttribute('data-panel') === panelId));
+        panels.forEach((panel) => panel.classList.toggle('active', panel.id === panelId));
+    }
+
+    tabs.forEach((tab) => tab.addEventListener('click', () => {
+        const panelId = tab.getAttribute('data-panel');
+        if (panelId) activatePanel(panelId);
+    }));
+
+    const stateCurrent = document.getElementById('adStateCurrent');
+    const stateList = Array.from(document.querySelectorAll('#adStateList .state-item'));
+    const adResultSummary = document.getElementById('adResultSummary');
+    const adResultTableBody = document.getElementById('adResultTableBody');
+    const adActionFilter = document.getElementById('adActionFilter');
+    const adPagePrevBtn = document.getElementById('adPagePrevBtn');
+    const adPageNextBtn = document.getElementById('adPageNextBtn');
+    const adDecisionsTableBody = document.getElementById('adDecisionsTableBody');
+    const ruleCandidatesTableBody = document.getElementById('ruleCandidatesTableBody');
+    const ruleCandidatesStatusFilter = document.getElementById('ruleCandidatesStatusFilter');
+    const ruleCandidatesStats = document.getElementById('ruleCandidatesStats');
+    const ruleCandidatesCountPending = document.getElementById('ruleCandidatesCountPending');
+    const ruleCandidatesCountApproved = document.getElementById('ruleCandidatesCountApproved');
+    const ruleCandidatesCountRejected = document.getElementById('ruleCandidatesCountRejected');
+    const adInputCount = document.getElementById('adInputCount');
+    const riskCheckEmptyState = document.getElementById('riskCheckEmptyState');
+    const adGroupSelect = document.getElementById('adGroupSelect');
+    const adScanRange = document.getElementById('adScanRange');
+    const adCustomScanLimit = document.getElementById('adCustomScanLimit');
+    const adCancelScanBtn = document.getElementById('adCancelScanBtn');
+    const adContextInfo = document.getElementById('adContextInfo');
+    const opsToast = document.getElementById('opsToast');
+
+    let currentJobId = '';
+    let latestAnalyzeItems = [];
+    let currentPage = 1;
+    const pageSize = 8;
+
+    function setAdState(key, label) {
+        if (stateCurrent) stateCurrent.textContent = `当前进度：${label}`;
+        stateList.forEach((item) => item.classList.toggle('active', item.getAttribute('data-state') === key));
+    }
+
+    function showToast(message) {
+        if (!opsToast) return;
+        opsToast.textContent = message || '操作完成';
+        opsToast.style.display = 'block';
+        window.clearTimeout(showToast._timer || 0);
+        showToast._timer = window.setTimeout(() => {
+            if (opsToast) opsToast.style.display = 'none';
+        }, 2200);
+    }
+
+    function actionLabel(action) {
+        const mapping = {
+            block: '建议拦截',
+            review: '建议人工复核',
+            allow: '建议放行',
+            sanitize: '建议净化后再用',
+            needs_ai: '待进一步分析',
+        };
+        return mapping[String(action || '')] || String(action || '');
+    }
+
+    function reasonLabel(reason) {
+        const mapping = {
+            url: '检测到链接',
+            telegram_link: '检测到 Telegram 导流链接',
+            contact_hint: '检测到联系方式线索',
+            ad_phrase: '检测到推广话术',
+            mention_link_hint: '检测到用户名导流',
+            bot_command_link: '检测到机器人命令导流',
+            join_cta: '检测到引流加群话术',
+            adult_lure_phrase: '检测到成人诱导话术',
+            channel_list_pattern: '检测到频道列表导流模板',
+            repeated_join_cta: '检测到重复引流口令',
+            adult_variant_lure: '检测到成人变体导流文案',
+            adult_channel_matrix: '检测到成人频道矩阵导流',
+        };
+        const key = String(reason || '');
+        if (key.startsWith('blacklist:')) {
+            return `命中屏蔽词: ${key.slice('blacklist:'.length)}`;
+        }
+        return mapping[key] || key;
+    }
+
+    function formatRuleReasons(reasons) {
+        const list = Array.isArray(reasons) ? reasons : [];
+        if (!list.length) return '-';
+        return list.map((x) => reasonLabel(x)).join('；');
+    }
+
+    function confidenceLabel(value) {
+        const score = Number(value || 0);
+        if (score >= 0.85) return '高';
+        if (score >= 0.55) return '中';
+        return '低';
+    }
+
+    function updateModelLabel(text) {
+        if (adInputCount) adInputCount.textContent = text || '当前模型：读取中...';
+    }
+
+    function filteredAnalyzeItems() {
+        const action = String(adActionFilter?.value || '').trim();
+        if (!action) return latestAnalyzeItems;
+        return latestAnalyzeItems.filter((x) => String(x.suggested_action || '') === action);
+    }
+
+    function renderAnalyzeRows(rows) {
+        latestAnalyzeItems = Array.isArray(rows) ? rows.map((x) => Object.assign({}, x)) : [];
+        currentPage = 1;
+        renderAnalyzePage();
+    }
+
+    function renderAnalyzePage() {
+        const rows = filteredAnalyzeItems();
+        const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+        if (currentPage > totalPages) currentPage = totalPages;
+        const start = (currentPage - 1) * pageSize;
+        const pageRows = rows.slice(start, start + pageSize);
+
+        adResultTableBody.innerHTML = '';
+        if (!pageRows.length) {
+            adResultTableBody.innerHTML = '<tr><td colspan="7">这次没有发现可处理的结果</td></tr>';
+            adResultSummary.textContent = `当前无匹配结果（页 ${currentPage}/${totalPages}）`;
+            return;
+        }
+
+        pageRows.forEach((x) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${x.item_id || x.message_id || ''}</td>
+                <td>${x.rule_hit ? '高风险' : '待进一步分析'}</td>
+                <td>${formatRuleReasons(x.rule_reasons)}</td>
+                <td>${actionLabel(x.suggested_action)}</td>
+                <td>${confidenceLabel(x.confidence)}</td>
+                <td>${x.ai_reason || ''}</td>
+                <td>
+                    <button class="btn" data-row-action="allow" data-row-id="${x.item_id || x.message_id || ''}">放行</button>
+                    <button class="btn btn-danger" data-row-action="block" data-row-id="${x.item_id || x.message_id || ''}">拦截</button>
+                    <button class="btn" data-row-action="sanitize" data-row-id="${x.item_id || x.message_id || ''}">确认净化</button>
+                    <button class="btn" data-row-action="false_positive" data-row-id="${x.item_id || x.message_id || ''}">误伤反馈</button>
+                </td>
+            `;
+            adResultTableBody.appendChild(tr);
+        });
+
+        adResultSummary.textContent = `结果 ${rows.length} 条（页 ${currentPage}/${totalPages}）`;
+    }
+
+    async function loadScanTargets() {
+        const data = await fetchJson('/api/content-ops/scan-targets');
+        const targets = Array.isArray(data.targets) ? data.targets : [];
+        if (adGroupSelect) {
+            const current = adGroupSelect.value;
+            adGroupSelect.innerHTML = '<option value="">选择群组（仅显示可维护目标）</option>';
+            targets.forEach((item) => {
+                const opt = document.createElement('option');
+                opt.value = item.token;
+                opt.textContent = `${item.title} (${item.token})`;
+                adGroupSelect.appendChild(opt);
+            });
+            if (current) adGroupSelect.value = current;
+        }
+        updateModelLabel(`当前模型：${data.model || 'global-default'}（全局统一模型）`);
+    }
+
+    function resolveScanRangeValue() {
+        const selected = String(adScanRange?.value || 'latest_50').trim();
+        if (selected !== 'custom') return selected;
+        const raw = String(adCustomScanLimit?.value || '').trim();
+        const n = Number(raw || 0);
+        if (!Number.isFinite(n) || n <= 0) {
+            throw new Error('请输入有效的自定义条数');
+        }
+        return String(Math.min(3000, Math.max(1, Math.floor(n))));
+    }
+
+    async function loadCompletedScanItems(jobId) {
+        const rows = [];
+        let offset = 0;
+        const limit = 500;
+        for (let i = 0; i < 30; i += 1) {
+            const page = await fetchJson(`/api/content-ops/scan-jobs/${encodeURIComponent(jobId)}/items?offset=${offset}&limit=${limit}`, { timeoutMs: 30000 });
+            const chunk = Array.isArray(page.items) ? page.items : [];
+            rows.push(...chunk);
+            offset += chunk.length;
+            if (!chunk.length || offset >= Number(page.total || 0)) break;
+        }
+        return rows;
+    }
+
+    async function pollScanJobUntilDone(jobId, groupId, scanRange) {
+        const maxRounds = 600;
+        for (let i = 0; i < maxRounds; i += 1) {
+            const detail = await fetchJson(`/api/content-ops/scan-jobs/${encodeURIComponent(jobId)}?include_items=0`);
+            const stage = String(detail.stage || 'running');
+            const phase = String(detail.phase || stage);
+            const scanned = Number(detail.scanned_count || 0);
+            const etaSeconds = Number(detail.eta_seconds || 0);
+            const autoSummary = detail.auto_processed_summary || {};
+            if (stage === 'completed') {
+                const rows = await loadCompletedScanItems(jobId);
+                renderAnalyzeRows(rows);
+                const progressDone = Number(detail.progress_percent || 100);
+                adResultSummary.textContent = `扫描完成：${progressDone}%（已扫描 ${scanned} 条，自动处理 ${autoSummary.total_auto_processed || 0} 条，待人工确认 ${detail.pending_human_review_count || 0} 条）`;
+                adContextInfo.textContent = `当前群组：${detail.group_id || groupId} ｜ 当前范围：${detail.scan_range || scanRange} ｜ 当前阶段：completed`;
+                setAdState('review', '等待人工确认');
+                return;
+            }
+            if (stage === 'cancelled') {
+                adResultSummary.textContent = `扫描已取消：已扫描 ${scanned} 条`;
+                adContextInfo.textContent = `当前群组：${detail.group_id || groupId} ｜ 当前范围：${detail.scan_range || scanRange} ｜ 当前阶段：cancelled`;
+                setAdState('done', '处理完成');
+                return;
+            }
+            if (stage === 'failed') {
+                const err = String(detail.error || '扫描失败');
+                adResultSummary.textContent = `扫描失败：${err}`;
+                adContextInfo.textContent = `当前群组：${detail.group_id || groupId} ｜ 当前范围：${detail.scan_range || scanRange} ｜ 当前阶段：failed`;
+                setAdState('done', '处理完成');
+                throw new Error(err);
+            }
+            const progress = Number(detail.progress_percent || 0);
+            const etaLabel = etaSeconds > 0 ? `，预计剩余 ${etaSeconds}s` : '';
+            adResultSummary.textContent = `全量扫描进行中：${progress}%（已扫描 ${scanned} 条，阶段 ${phase}${etaLabel}）`;
+            adContextInfo.textContent = `当前群组：${detail.group_id || groupId} ｜ 当前范围：${detail.scan_range || scanRange} ｜ 当前阶段：${stage}`;
+            await new Promise((resolve) => window.setTimeout(resolve, 1200));
+        }
+        throw new Error('全量扫描等待超时，请稍后刷新查看结果');
+    }
+
+    async function runFullCheck() {
+        const startBtn = document.getElementById('adStartCheckBtn');
+        const groupId = String(adGroupSelect?.value || '').trim();
+        const scanRange = resolveScanRangeValue();
+        if (!groupId) {
+            adResultSummary.textContent = '请先选择群组';
+            return;
+        }
+        if (startBtn) {
+            startBtn.setAttribute('disabled', 'disabled');
+            startBtn.textContent = '扫描中...';
+        }
+        if (adCancelScanBtn) adCancelScanBtn.style.display = 'inline-flex';
+        setAdState('checking', '正在读取群组消息');
+        adContextInfo.textContent = `当前群组：${groupId} ｜ 当前范围：${scanRange} ｜ 当前阶段：扫描中`;
+        try {
+            const data = await fetchJson('/api/content-ops/scan-jobs', {
+                timeoutMs: 30000,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ group_id: groupId, scan_range: scanRange }),
+            });
+            currentJobId = data.job_id || '';
+            const stage = String(data.stage || 'completed');
+            if (stage === 'running') {
+                setAdState('analyzing', '正在全量扫描，请稍候');
+                const phase = String(data.phase || 'running');
+                adResultSummary.textContent = `全量扫描任务已启动，阶段：${phase}`;
+                await pollScanJobUntilDone(currentJobId, groupId, scanRange);
+                return;
+            }
+
+            const items = Array.isArray(data.items) && data.items.length ? data.items : await loadCompletedScanItems(currentJobId);
+            renderAnalyzeRows(items);
+            const autoSummary = data.auto_processed_summary || {};
+            const scanned = Number(data.scanned_count || items.length || 0);
+            adResultSummary.textContent = `扫描完成：已扫描 ${scanned} 条，自动处理 ${autoSummary.total_auto_processed || 0} 条，待人工确认 ${data.pending_human_review_count || 0} 条`;
+            adContextInfo.textContent = `当前群组：${data.group_id || groupId} ｜ 当前范围：${data.scan_range || scanRange} ｜ 当前阶段：${data.stage || 'completed'}`;
+            setAdState('review', '等待人工确认');
+        } finally {
+            if (startBtn) {
+                startBtn.removeAttribute('disabled');
+                startBtn.textContent = '发起真实扫描';
+            }
+            if (adCancelScanBtn) adCancelScanBtn.style.display = 'none';
+        }
+    }
+
+    async function persistDecision(row, action, reason) {
+        await fetchJson('/api/content-ops/ad-decisions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message_id: row.item_id || row.message_id || '',
+                text: row.text || '',
+                chat_id: row.chat_id || null,
+                action,
+                state: row.state || action,
+                reason,
+            }),
+        });
+    }
+
+    async function loadDecisions() {
+        const data = await fetchJson('/api/content-ops/ad-decisions?limit=30');
+        const items = Array.isArray(data.items) ? data.items : [];
+        adDecisionsTableBody.innerHTML = '';
+        if (!items.length) {
+            adDecisionsTableBody.innerHTML = '<tr><td colspan="5">暂无决策记录</td></tr>';
+            return;
+        }
+        items.forEach((item) => {
+            const ts = Number(item.created_at || 0);
+            const t = ts ? new Date(ts * 1000).toLocaleString() : '-';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${t}</td><td>${item.message_id || ''}</td><td>${item.action || ''}</td><td>${item.state || ''}</td><td>${item.reason || ''}</td>`;
+            adDecisionsTableBody.appendChild(tr);
+        });
+    }
+
+    function updateStatusFilterFromStats(status) {
+        const value = String(status || '').trim();
+        if (ruleCandidatesStatusFilter) {
+            ruleCandidatesStatusFilter.value = value;
+        }
+        Array.from(ruleCandidatesStats?.querySelectorAll('[data-status-filter]') || []).forEach((el) => {
+            const key = String(el.getAttribute('data-status-filter') || '').trim();
+            el.classList.toggle('active', !!value && key === value);
+        });
+    }
+
+    async function loadRuleCandidateStats() {
+        try {
+            const [pending, approved, rejected] = await Promise.all([
+                fetchJson('/api/content-ops/rule-candidates?limit=1&status=pending'),
+                fetchJson('/api/content-ops/rule-candidates?limit=1&status=approved'),
+                fetchJson('/api/content-ops/rule-candidates?limit=1&status=rejected'),
+            ]);
+            if (ruleCandidatesCountPending) ruleCandidatesCountPending.textContent = String(pending.count || 0);
+            if (ruleCandidatesCountApproved) ruleCandidatesCountApproved.textContent = String(approved.count || 0);
+            if (ruleCandidatesCountRejected) ruleCandidatesCountRejected.textContent = String(rejected.count || 0);
+        } catch (_) {
+            if (ruleCandidatesCountPending) ruleCandidatesCountPending.textContent = '-';
+            if (ruleCandidatesCountApproved) ruleCandidatesCountApproved.textContent = '-';
+            if (ruleCandidatesCountRejected) ruleCandidatesCountRejected.textContent = '-';
+        }
+    }
+
+    async function loadRuleCandidates() {
+        await loadRuleCandidateStats();
+        const status = String(ruleCandidatesStatusFilter?.value || '').trim();
+        updateStatusFilterFromStats(status);
+        const query = status ? `?limit=30&status=${encodeURIComponent(status)}` : '?limit=30';
+        const data = await fetchJson(`/api/content-ops/rule-candidates${query}`);
+        const items = Array.isArray(data.items) ? data.items : [];
+        if (!ruleCandidatesTableBody) return;
+        ruleCandidatesTableBody.innerHTML = '';
+        if (adResultSummary) {
+            const statusLabel = status || 'all';
+            adResultSummary.textContent = `候选规则 ${items.length} 条（status=${statusLabel}）`;
+        }
+        if (!items.length) {
+            ruleCandidatesTableBody.innerHTML = '<tr><td colspan="6">暂无候选规则</td></tr>';
+            return;
+        }
+        items.forEach((item) => {
+            const ts = Number(item.created_at || 0);
+            const t = ts ? new Date(ts * 1000).toLocaleString() : '-';
+            const status = String(item.status || 'pending');
+            const supportedApproveTypes = new Set(['mention', 'url', 'telegram_link', 'bot_command', 'hashtag']);
+            const canApprove = supportedApproveTypes.has(String(item.candidate_type || '').toLowerCase());
+            const actionCell = status === 'pending'
+                ? `${canApprove
+                    ? `<button class="btn" data-candidate-action="approve" data-candidate-id="${item.candidate_id || ''}">批准入库</button>`
+                    : `<span class="mono">候选类型不支持入黑名单</span>`}
+                   <button class="btn btn-danger" data-candidate-action="reject" data-candidate-id="${item.candidate_id || ''}">拒绝</button>`
+                : `<span class="mono">已处理（${status}）</span>`;
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${t}</td>
+                <td>${item.candidate_type || ''}</td>
+                <td class="mono">${item.value || ''}</td>
+                <td>${status}</td>
+                <td>${item.source_decision_id || ''}</td>
+                <td>${actionCell}</td>
+            `;
+            ruleCandidatesTableBody.appendChild(tr);
+        });
+    }
+
+    async function updateRuleCandidate(candidateId, action) {
+        return await fetchJson(`/api/content-ops/rule-candidates/${encodeURIComponent(candidateId)}/${action}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+    }
+
+    const blacklistKeywords = document.getElementById('blacklistKeywords');
+    const blacklistKeywordInput = document.getElementById('blacklistKeywordInput');
+    const blacklistSourceInput = document.getElementById('blacklistSourceInput');
+    const blacklistNoteInput = document.getElementById('blacklistNoteInput');
+    const blacklistImportText = document.getElementById('blacklistImportText');
+
+    async function loadBlacklist() {
+        const data = await fetchJson('/api/content-ops/blacklist');
+        const items = Array.isArray(data.items) ? data.items : [];
+        blacklistKeywords.innerHTML = '';
+        if (!items.length) {
+            blacklistKeywords.innerHTML = '<span class="mono">暂无屏蔽词</span>';
+            return;
+        }
+        items.forEach((row) => {
+            const chip = document.createElement('div');
+            chip.className = 'keyword-chip';
+            const source = row.source || 'manual';
+            const note = row.note || '';
+            chip.innerHTML = `<span>${row.keyword}</span><span class="mono">source:${source}</span><span class="mono">note:${note}</span><button class="btn" data-delete-keyword="${row.keyword}">删除</button>`;
+            blacklistKeywords.appendChild(chip);
+        });
+    }
+
+    async function addBlacklistKeyword() {
+        const keyword = String(blacklistKeywordInput?.value || '').trim();
+        const source = String(blacklistSourceInput?.value || '').trim() || 'manual';
+        const note = String(blacklistNoteInput?.value || '').trim();
+        if (!keyword) return;
+        await fetchJson('/api/content-ops/blacklist', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keyword, source, note }),
+        });
+        blacklistKeywordInput.value = '';
+        blacklistSourceInput.value = '';
+        blacklistNoteInput.value = '';
+        await loadBlacklist();
+    }
+
+    async function deleteBlacklistKeyword(keyword) {
+        await fetchJson(`/api/content-ops/blacklist/${encodeURIComponent(keyword)}`, { method: 'DELETE' });
+        await loadBlacklist();
+    }
+
+    async function exportBlacklist() {
+        const data = await fetchJson('/api/content-ops/blacklist/export');
+        const blob = new Blob([JSON.stringify(data.items || [], null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'blacklist_export.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    }
+
+    async function importBlacklist() {
+        const raw = String(blacklistImportText?.value || '').trim();
+        if (!raw) return;
+        const entries = raw.split(/\n+/).map((line) => {
+            const parts = line.split('\t');
+            return {
+                keyword: String(parts[0] || '').trim(),
+                source: String(parts[1] || 'manual').trim(),
+                note: String(parts[2] || '').trim(),
+            };
+        }).filter((x) => x.keyword);
+        if (!entries.length) return;
+        await fetchJson('/api/content-ops/blacklist/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ entries, replace: false }),
+        });
+        await loadBlacklist();
+    }
+
+    document.getElementById('adStartCheckBtn')?.addEventListener('click', () => runFullCheck().catch((e) => {
+        adResultSummary.textContent = e.message || '本次扫描没有成功，请稍后重试';
+    }));
+    document.getElementById('adRefreshTargetsBtn')?.addEventListener('click', () => loadScanTargets().catch((e) => {
+        adResultSummary.textContent = e.message || '刷新群组失败';
+    }));
+    document.getElementById('adDecisionRefreshBtn')?.addEventListener('click', () => loadDecisions().catch(() => {}));
+    document.getElementById('ruleCandidatesRefreshBtn')?.addEventListener('click', () => loadRuleCandidates().catch(() => {}));
+    ruleCandidatesStatusFilter?.addEventListener('change', () => loadRuleCandidates().catch(() => {}));
+    adCancelScanBtn?.addEventListener('click', async () => {
+        if (!currentJobId) return;
+        try {
+            const resp = await fetchJson(`/api/content-ops/scan-jobs/${encodeURIComponent(currentJobId)}/cancel`, { method: 'POST' });
+            const msg = resp.message || '已请求取消扫描任务';
+            adResultSummary.textContent = msg;
+            showToast(msg);
+            if (adCancelScanBtn) adCancelScanBtn.style.display = 'none';
+        } catch (e) {
+            const msg = e.message || '取消扫描失败';
+            adResultSummary.textContent = msg;
+            showToast(msg);
+        }
+    });
+    adScanRange?.addEventListener('change', () => {
+        const mode = String(adScanRange?.value || '');
+        if (adCustomScanLimit) adCustomScanLimit.style.display = mode === 'custom' ? 'block' : 'none';
+    });
+    const mode0 = String(adScanRange?.value || '');
+    if (adCustomScanLimit) adCustomScanLimit.style.display = mode0 === 'custom' ? 'block' : 'none';
+
+    ruleCandidatesStats?.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const item = target.closest('[data-status-filter]');
+        if (!(item instanceof HTMLElement)) return;
+        const status = String(item.getAttribute('data-status-filter') || '').trim();
+        updateStatusFilterFromStats(status);
+        loadRuleCandidates().catch(() => {});
+    });
+    ruleCandidatesStats?.addEventListener('keydown', (event) => {
+        if (!(event instanceof KeyboardEvent)) return;
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const status = String(target.getAttribute('data-status-filter') || '').trim();
+        if (!status) return;
+        event.preventDefault();
+        updateStatusFilterFromStats(status);
+        loadRuleCandidates().catch(() => {});
+    });
+
+    adActionFilter?.addEventListener('change', () => { currentPage = 1; renderAnalyzePage(); });
+    adPagePrevBtn?.addEventListener('click', () => { currentPage = Math.max(1, currentPage - 1); renderAnalyzePage(); });
+    adPageNextBtn?.addEventListener('click', () => { currentPage += 1; renderAnalyzePage(); });
+
+    document.getElementById('blacklistAddBtn')?.addEventListener('click', () => addBlacklistKeyword().catch((e) => {
+        blacklistKeywords.innerHTML = `<span class="mono">${e.message || '添加失败'}</span>`;
+    }));
+    document.getElementById('blacklistRefreshBtn')?.addEventListener('click', () => loadBlacklist().catch((e) => {
+        blacklistKeywords.innerHTML = `<span class="mono">${e.message || '加载失败'}</span>`;
+    }));
+    document.getElementById('blacklistExportBtn')?.addEventListener('click', () => exportBlacklist().catch(() => {}));
+    document.getElementById('blacklistImportBtn')?.addEventListener('click', () => importBlacklist().catch(() => {}));
+
+    blacklistKeywords?.addEventListener('click', (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const keyword = target.getAttribute('data-delete-keyword');
+        if (!keyword) return;
+        deleteBlacklistKeyword(keyword).catch((e) => {
+            blacklistKeywords.innerHTML = `<span class="mono">${e.message || '删除失败'}</span>`;
+        });
+    });
+
+    ruleCandidatesTableBody?.addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const btn = target.closest('button[data-candidate-action][data-candidate-id]');
+        if (!(btn instanceof HTMLButtonElement)) return;
+        const action = btn.getAttribute('data-candidate-action');
+        const candidateId = btn.getAttribute('data-candidate-id');
+        if (!action || !candidateId) return;
+        const original = btn.textContent || '';
+        btn.setAttribute('disabled', 'disabled');
+        btn.textContent = action === 'approve' ? '批准中...' : '拒绝中...';
+        try {
+            const resp = await updateRuleCandidate(candidateId, action);
+            try {
+                await Promise.all([loadRuleCandidates(), loadBlacklist()]);
+            } catch (refreshError) {
+                console.warn('刷新候选规则/屏蔽词失败', refreshError);
+            }
+            const msg = resp?.message || (action === 'approve' ? '已批准候选规则' : '已拒绝候选规则');
+            adResultSummary.textContent = msg;
+            showToast(msg);
+        } catch (e) {
+            const msg = e.message || '候选规则操作失败';
+            adResultSummary.textContent = msg;
+            showToast(msg);
+        } finally {
+            btn.removeAttribute('disabled');
+            btn.textContent = original;
+        }
+    });
+
+    adResultTableBody?.addEventListener('click', async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const btn = target.closest('button[data-row-action][data-row-id]');
+        if (!(btn instanceof HTMLButtonElement)) return;
+        const action = btn.getAttribute('data-row-action');
+        const rowId = btn.getAttribute('data-row-id');
+        if (!action || !rowId) return;
+
+        const idx = latestAnalyzeItems.findIndex((x) => String(x.item_id || x.message_id || '') === String(rowId));
+        if (idx < 0) return;
+        const row = latestAnalyzeItems[idx];
+
+        if (!currentJobId) {
+            adResultSummary.textContent = '缺少任务上下文，请重新发起扫描';
+            return;
+        }
+
+        const result = await fetchJson('/api/content-ops/result-actions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                job_id: currentJobId,
+                item_id: row.item_id || row.message_id,
+                action,
+                reason: action === 'false_positive' ? 'false_positive_feedback' : undefined,
+            }),
+        });
+
+        row.state = result.status || row.state;
+        if (action === 'allow') {
+            row.suggested_action = 'allow';
+            row.ai_reason = '人工确认放行';
+            await persistDecision(row, 'allow', 'manual allow');
+        } else if (action === 'block') {
+            row.suggested_action = 'block';
+            row.ai_reason = '人工确认拦截并执行';
+            await persistDecision(row, 'block', 'manual block');
+        } else if (action === 'sanitize') {
+            row.suggested_action = 'sanitize';
+            row.ai_reason = '人工确认净化并执行';
+            await persistDecision(row, 'sanitize', 'manual sanitize');
+        } else if (action === 'false_positive') {
+            row.suggested_action = 'review';
+            row.ai_reason = '已标记误伤并降级为候选规则';
+            await persistDecision(row, 'review', 'false_positive_feedback');
+        }
+
+        adResultSummary.textContent = result.message || '处理结果已保存';
+        renderAnalyzePage();
+        await loadDecisions();
+    });
+
+    loadScanTargets().catch((e) => {
+        adResultSummary.textContent = e.message || '加载群组失败';
+    });
+
+    loadBlacklist().catch(() => {
+        blacklistKeywords.innerHTML = '<span class="mono">加载屏蔽词失败</span>';
+    });
+    loadDecisions().catch(() => {
+        adDecisionsTableBody.innerHTML = '<tr><td colspan="5">加载决策记录失败</td></tr>';
+    });
+    loadRuleCandidates().catch(() => {
+        if (ruleCandidatesTableBody) {
+            ruleCandidatesTableBody.innerHTML = '<tr><td colspan="6">加载候选规则失败</td></tr>';
+        }
+    });
+})();
+</script>
+{% endblock %}

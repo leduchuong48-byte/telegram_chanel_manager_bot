@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import sqlite3
 import time
+import json
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
 from tg_media_dedupe_bot.models import MediaItem, ProcessDecision
+from tg_media_dedupe_bot.reliability import TelegramFailure, classify_delete_error
 
 
 @dataclass(frozen=True)
@@ -17,10 +19,12 @@ class DeletionRecord:
 
 
 class Database:
-    def __init__(self, path: Path) -> None:
-        self._path = path
+    def __init__(self, path: str | Path) -> None:
+        self._path = Path(path)
+        self._path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self._path, timeout=30)
         self._conn.row_factory = sqlite3.Row
+        self._conn.execute("PRAGMA busy_timeout=30000;")
         self._init_schema()
 
     def close(self) -> None:
@@ -120,6 +124,34 @@ class Database:
                 """
                 CREATE INDEX IF NOT EXISTS idx_deletion_events_chat_created
                 ON deletion_events(chat_id, created_at DESC);
+                """
+            )
+
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS forwarded_messages (
+                  rule_id TEXT NOT NULL,
+                  source_chat_id INTEGER NOT NULL,
+                  source_message_id INTEGER NOT NULL,
+                  target_chat_id INTEGER NOT NULL,
+                  media_group_id TEXT NOT NULL DEFAULT '',
+                  status TEXT NOT NULL,
+                  attempt_count INTEGER NOT NULL DEFAULT 0,
+                  lease_owner TEXT NOT NULL DEFAULT '',
+                  lease_expires_at INTEGER NOT NULL DEFAULT 0,
+                  target_message_ids_json TEXT NOT NULL DEFAULT '[]',
+                  last_error TEXT,
+                  created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL,
+                  PRIMARY KEY(rule_id, source_chat_id, source_message_id, target_chat_id)
+                );
+                """
+            )
+            self._ensure_forwarded_messages_schema()
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_forwarded_messages_status_updated
+                ON forwarded_messages(status, updated_at DESC);
                 """
             )
 
@@ -434,6 +466,22 @@ class Database:
             self._ensure_job_progress_schema()
             self._ensure_cleaner_control_plane_schema()
             self._ensure_provider_registry_schema()
+
+    def _ensure_forwarded_messages_schema(self) -> None:
+        rows = self._conn.execute("PRAGMA table_info(forwarded_messages)").fetchall()
+        if not rows:
+            return
+        columns = {str(row["name"]) for row in rows}
+        migrations: list[tuple[str, str]] = [
+            ("lease_owner", "ALTER TABLE forwarded_messages ADD COLUMN lease_owner TEXT NOT NULL DEFAULT ''"),
+            (
+                "lease_expires_at",
+                "ALTER TABLE forwarded_messages ADD COLUMN lease_expires_at INTEGER NOT NULL DEFAULT 0",
+            ),
+        ]
+        for column, sql in migrations:
+            if column not in columns:
+                self._conn.execute(sql)
 
     def _ensure_tag_library_schema(self) -> None:
         rows = self._conn.execute("PRAGMA table_info(tag_library)").fetchall()
@@ -968,10 +1016,22 @@ class Database:
 
     def replace_message_id(self, *, chat_id: int, old_message_id: int, new_message_id: int) -> None:
         with self._conn:
-            self._conn.execute(
-                "UPDATE media_messages SET message_id=? WHERE chat_id=? AND message_id=?",
-                (new_message_id, chat_id, old_message_id),
-            )
+            target_exists = self._conn.execute(
+                "SELECT 1 FROM media_messages WHERE chat_id=? AND message_id=?",
+                (chat_id, new_message_id),
+            ).fetchone() is not None
+
+            if target_exists:
+                self._conn.execute(
+                    "DELETE FROM media_messages WHERE chat_id=? AND message_id=?",
+                    (chat_id, old_message_id),
+                )
+            else:
+                self._conn.execute(
+                    "UPDATE media_messages SET message_id=? WHERE chat_id=? AND message_id=?",
+                    (new_message_id, chat_id, old_message_id),
+                )
+
             self._conn.execute(
                 "UPDATE media_canonical SET canonical_message_id=? WHERE chat_id=? AND canonical_message_id=?",
                 (new_message_id, chat_id, old_message_id),
@@ -1048,6 +1108,250 @@ class Database:
                 """,
                 (chat_id, message_id, media_key, now, result, error),
             )
+
+    def record_deletion_failure(
+        self,
+        *,
+        chat_id: int,
+        message_id: int,
+        media_key: str | None,
+        reason: str,
+        error: str,
+        detail_prefix: str = "",
+    ) -> TelegramFailure:
+        """Persist a failed delete and retire permanently impossible rows."""
+        now = int(time.time())
+        failure = classify_delete_error(RuntimeError(error))
+        detail_parts = [part for part in (detail_prefix.strip(), f"category={failure.category}", f"error={error}") if part]
+        event_type = "delete_terminal" if failure.disposition == "terminal" else "delete_failed"
+        result = "terminal" if failure.disposition == "terminal" else "failed"
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO deletion_attempts(chat_id, message_id, media_key, attempted_at, result, error)
+                VALUES(?, ?, ?, ?, 'failed', ?)
+                ON CONFLICT(chat_id, message_id) DO UPDATE SET
+                  attempted_at=excluded.attempted_at,
+                  result=excluded.result,
+                  error=excluded.error,
+                  media_key=COALESCE(excluded.media_key, deletion_attempts.media_key)
+                """,
+                (chat_id, message_id, media_key, now, error),
+            )
+            if failure.disposition == "terminal":
+                self._conn.execute(
+                    "DELETE FROM pending_deletions WHERE chat_id=? AND message_id=?",
+                    (chat_id, message_id),
+                )
+            self._conn.execute(
+                """
+                INSERT INTO deletion_events(chat_id, message_id, event_type, reason, result, detail, created_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?)
+                """,
+                (chat_id, message_id, event_type, reason, result, "; ".join(detail_parts), now),
+            )
+        return failure
+
+    def reconcile_terminal_pending_deletions(self) -> int:
+        """Remove pending rows whose last failure is permanently non-deletable."""
+        rows = self._conn.execute(
+            """
+            SELECT p.chat_id, p.message_id, p.reason, a.error
+            FROM pending_deletions AS p
+            JOIN deletion_attempts AS a
+              ON a.chat_id = p.chat_id AND a.message_id = p.message_id
+            WHERE a.result = 'failed'
+            ORDER BY p.created_at ASC
+            """
+        ).fetchall()
+        reconciled = 0
+        now = int(time.time())
+        with self._conn:
+            for row in rows:
+                failure = classify_delete_error(RuntimeError(str(row["error"] or "")))
+                if failure.disposition != "terminal":
+                    continue
+                chat_id = int(row["chat_id"])
+                message_id = int(row["message_id"])
+                detail = f"category={failure.category}; error={row['error']}"
+                self._conn.execute(
+                    "DELETE FROM pending_deletions WHERE chat_id=? AND message_id=?",
+                    (chat_id, message_id),
+                )
+                self._conn.execute(
+                    """
+                    INSERT INTO deletion_events(chat_id, message_id, event_type, reason, result, detail, created_at)
+                    VALUES(?, ?, 'delete_terminal_reconciled', ?, 'terminal', ?, ?)
+                    """,
+                    (chat_id, message_id, str(row["reason"]), detail, now),
+                )
+                reconciled += 1
+        return reconciled
+
+    def claim_forwarding_batch(
+        self,
+        *,
+        rule_id: str,
+        source_chat_id: int,
+        target_chat_id: int,
+        source_message_ids: list[int],
+        media_group_id: str | None,
+        worker_id: str,
+        lease_seconds: int = 120,
+    ) -> bool:
+        message_ids = sorted({int(value) for value in source_message_ids if int(value) > 0})
+        if not message_ids:
+            return False
+        now = int(time.time())
+        lease_until = now + max(30, int(lease_seconds))
+        group_id = str(media_group_id or "")
+        placeholders = ",".join("?" for _ in message_ids)
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            existing = self._conn.execute(
+                f"""
+                SELECT source_message_id, status, lease_owner, lease_expires_at
+                FROM forwarded_messages
+                WHERE rule_id=? AND source_chat_id=? AND target_chat_id=?
+                  AND source_message_id IN ({placeholders})
+                """,
+                (rule_id, int(source_chat_id), int(target_chat_id), *message_ids),
+            ).fetchall()
+            if any(str(row["status"]) in {"completed", "delivery_unknown"} for row in existing):
+                self._conn.rollback()
+                return False
+            if any(str(row["status"]) == "sending" and int(row["lease_expires_at"] or 0) > now for row in existing):
+                self._conn.rollback()
+                return False
+            expired_sending = [row for row in existing if str(row["status"]) == "sending"]
+            if expired_sending:
+                for row in expired_sending:
+                    self._conn.execute(
+                        """
+                        UPDATE forwarded_messages
+                        SET status='delivery_unknown', last_error='sending lease expired; manual review required',
+                            lease_owner='', lease_expires_at=0, updated_at=?
+                        WHERE rule_id=? AND source_chat_id=? AND source_message_id=? AND target_chat_id=?
+                        """,
+                        (now, rule_id, int(source_chat_id), int(row["source_message_id"]), int(target_chat_id)),
+                    )
+                self._conn.commit()
+                return False
+            for message_id in message_ids:
+                self._conn.execute(
+                    """
+                    INSERT INTO forwarded_messages(
+                      rule_id, source_chat_id, source_message_id, target_chat_id,
+                      media_group_id, status, attempt_count, lease_owner, lease_expires_at, created_at, updated_at
+                    )
+                    VALUES(?, ?, ?, ?, ?, 'sending', 1, ?, ?, ?, ?)
+                    ON CONFLICT(rule_id, source_chat_id, source_message_id, target_chat_id) DO UPDATE SET
+                      media_group_id=excluded.media_group_id,
+                      status='sending',
+                      attempt_count=forwarded_messages.attempt_count + 1,
+                      lease_owner=excluded.lease_owner,
+                      lease_expires_at=excluded.lease_expires_at,
+                      last_error=NULL,
+                      updated_at=excluded.updated_at
+                    WHERE forwarded_messages.status != 'completed'
+                    """,
+                    (
+                        rule_id,
+                        int(source_chat_id),
+                        message_id,
+                        int(target_chat_id),
+                        group_id,
+                        str(worker_id),
+                        lease_until,
+                        now,
+                        now,
+                    ),
+                )
+            self._conn.commit()
+            return True
+        except Exception:
+            self._conn.rollback()
+            raise
+
+    def complete_forwarding_batch(
+        self,
+        *,
+        rule_id: str,
+        source_chat_id: int,
+        target_chat_id: int,
+        source_message_ids: list[int],
+        target_message_ids: list[int],
+        worker_id: str,
+    ) -> int:
+        now = int(time.time())
+        payload = json.dumps([int(value) for value in target_message_ids], separators=(",", ":"))
+        updated = 0
+        with self._conn:
+            for message_id in source_message_ids:
+                cursor = self._conn.execute(
+                    """
+                    UPDATE forwarded_messages
+                    SET status='completed', target_message_ids_json=?, last_error=NULL,
+                        lease_owner='', lease_expires_at=0, updated_at=?
+                    WHERE rule_id=? AND source_chat_id=? AND source_message_id=? AND target_chat_id=?
+                      AND status='sending' AND lease_owner=?
+                    """,
+                    (payload, now, rule_id, int(source_chat_id), int(message_id), int(target_chat_id), str(worker_id)),
+                )
+                updated += int(cursor.rowcount)
+        return updated
+
+    def fail_forwarding_batch(
+        self,
+        *,
+        rule_id: str,
+        source_chat_id: int,
+        target_chat_id: int,
+        source_message_ids: list[int],
+        error: str,
+        worker_id: str,
+    ) -> int:
+        now = int(time.time())
+        updated = 0
+        with self._conn:
+            for message_id in source_message_ids:
+                cursor = self._conn.execute(
+                    """
+                    UPDATE forwarded_messages
+                    SET status='failed', last_error=?, lease_owner='', lease_expires_at=0, updated_at=?
+                    WHERE rule_id=? AND source_chat_id=? AND source_message_id=? AND target_chat_id=?
+                      AND status='sending' AND lease_owner=?
+                    """,
+                    (error, now, rule_id, int(source_chat_id), int(message_id), int(target_chat_id), str(worker_id)),
+                )
+                updated += int(cursor.rowcount)
+        return updated
+
+    def mark_forwarding_delivery_unknown(
+        self,
+        *,
+        rule_id: str,
+        source_chat_id: int,
+        target_chat_id: int,
+        source_message_ids: list[int],
+        error: str,
+        worker_id: str,
+    ) -> int:
+        now = int(time.time())
+        updated = 0
+        with self._conn:
+            for message_id in source_message_ids:
+                cursor = self._conn.execute(
+                    """
+                    UPDATE forwarded_messages
+                    SET status='delivery_unknown', last_error=?, lease_owner='', lease_expires_at=0, updated_at=?
+                    WHERE rule_id=? AND source_chat_id=? AND source_message_id=? AND target_chat_id=?
+                      AND status='sending' AND lease_owner=?
+                    """,
+                    (error, now, rule_id, int(source_chat_id), int(message_id), int(target_chat_id), str(worker_id)),
+                )
+                updated += int(cursor.rowcount)
+        return updated
 
     def record_deletion_event(
         self,
@@ -1960,6 +2264,125 @@ class Database:
                 """,
                 (str(trigger_source or "manual"), int(synced_count), now),
             )
+
+    def _ensure_ai_workflow_schema(self) -> None:
+        with self._conn:
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ai_workflow_events (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  event_type TEXT NOT NULL,
+                  result TEXT NOT NULL DEFAULT '',
+                  created_at INTEGER NOT NULL
+                );
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_ai_workflow_events_created
+                ON ai_workflow_events(created_at DESC);
+                """
+            )
+            self._conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_ai_workflow_events_type_created
+                ON ai_workflow_events(event_type, created_at DESC);
+                """
+            )
+
+    def record_ai_workflow_event(
+        self,
+        *,
+        event_type: str,
+        result: str = "",
+        created_at: int | None = None,
+    ) -> None:
+        self._ensure_ai_workflow_schema()
+        now = int(created_at) if created_at is not None else int(time.time())
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO ai_workflow_events(event_type, result, created_at)
+                VALUES(?, ?, ?)
+                """,
+                (str(event_type or "").strip(), str(result or "").strip(), now),
+            )
+
+    def get_ai_workflow_metrics(self, *, since_ts: int) -> dict[str, int | float]:
+        self._ensure_ai_workflow_schema()
+
+        preview_requests = int(
+            self._conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM ai_workflow_events
+                WHERE event_type='preview_request' AND created_at >= ?
+                """,
+                (int(since_ts),),
+            ).fetchone()["c"]
+            or 0
+        )
+        batch_jobs = int(
+            self._conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM ai_workflow_events
+                WHERE event_type='batch_job' AND created_at >= ?
+                """,
+                (int(since_ts),),
+            ).fetchone()["c"]
+            or 0
+        )
+
+        review_pending = int(
+            self._conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM jobs
+                WHERE status IN ('dead_letter', 'failed_permanent', 'failed')
+                   OR (status='retry_wait' AND attempt_count >= 2)
+                """
+            ).fetchone()["c"]
+            or 0
+        )
+
+        approved = int(
+            self._conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM ai_workflow_events
+                WHERE event_type='review_decision'
+                  AND result='approved'
+                  AND created_at >= ?
+                """,
+                (int(since_ts),),
+            ).fetchone()["c"]
+            or 0
+        )
+        rejected = int(
+            self._conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM ai_workflow_events
+                WHERE event_type='review_decision'
+                  AND result='rejected'
+                  AND created_at >= ?
+                """,
+                (int(since_ts),),
+            ).fetchone()["c"]
+            or 0
+        )
+        total_decisions = approved + rejected
+        approved_rate = float(approved / total_decisions) if total_decisions > 0 else 0.0
+        rejected_rate = float(rejected / total_decisions) if total_decisions > 0 else 0.0
+
+        return {
+            "preview_requests": preview_requests,
+            "batch_jobs": batch_jobs,
+            "review_pending": review_pending,
+            "review_approved_rate": approved_rate,
+            "review_rejected_rate": rejected_rate,
+        }
 
     def record_ai_request_event(
         self,

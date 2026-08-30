@@ -442,12 +442,10 @@ async def delete_group(
     return MessageResponse(success=True, message="标签组已删除")
 
 
-@router.post("/groups/rename", response_model=MessageResponse)
-async def rename_group(
+def _rename_group_impl(
     request: TagGroupRenameRequest,
-    _: Annotated[str, Depends(get_current_user)],
+    _: str,
 ) -> MessageResponse:
-    """Rename a tag group file atomically."""
     _ensure_dirs()
     old_name = _sanitize_name(request.old_name)
     new_name = _sanitize_name(request.new_name)
@@ -469,6 +467,19 @@ async def rename_group(
 
     old_path.rename(new_path)
     return MessageResponse(success=True, message="标签组已重命名")
+
+
+@router.post("/groups/rename", response_model=MessageResponse)
+async def rename_group(
+    request: TagGroupRenameRequest,
+    _: Annotated[str, Depends(get_current_user)],
+) -> MessageResponse:
+    """Rename a tag group file atomically."""
+    return _rename_group_impl(request, _)
+
+
+# Compatibility for direct endpoint invocation in maintenance/unit tooling.
+rename_group.__wrapped__ = _rename_group_impl  # type: ignore[attr-defined]
 
 
 @router.get("/preview", response_model=TagPreviewResponse)

@@ -10,6 +10,7 @@ sys.path.insert(0, "/app")
 
 from tg_media_dedupe_bot.config import load_config
 from tg_media_dedupe_bot.db import Database
+from tg_media_dedupe_bot.health import run_component_checks
 from tg_media_dedupe_bot.models import MediaItem
 
 
@@ -17,6 +18,10 @@ def main() -> None:
     cfg = load_config()
     if not cfg.bot_token:
         raise SystemExit("TG_BOT_TOKEN 缺失")
+
+    health = run_component_checks(include_bot=False)
+    if health.get("status") != "ok":
+        raise SystemExit(f"runtime health failed: {health}")
 
     db_parent = Path(cfg.db_path).expanduser().parent
     if not db_parent.exists():

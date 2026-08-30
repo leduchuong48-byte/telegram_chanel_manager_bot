@@ -1,14 +1,13 @@
 services:
   telegram_mediachanel_manager_bot:
     build: .
-    image: telegram_mediachanel_manager_bot:4.0
+    image: telegram_mediachanel_manager_bot:4.1
     container_name: telegram_mediachanel_manager_bot
-    restart: always
-    user: "${UID:-1000}:${GID:-1000}"
+    restart: unless-stopped
     env_file:
       - ./.env
     volumes:
-      - ./config.json:/app/config.json
+      - ./config.json:/app/config.json:ro
       - ./data:/app/data
       - ./sessions:/app/sessions
       - ./backups:/app/backups
@@ -16,3 +15,9 @@ services:
       - "1009:8000"
     environment:
       - LOG_LEVEL=INFO
+      - APP_ROOT=/app
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"

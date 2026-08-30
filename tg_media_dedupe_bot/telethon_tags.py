@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from tg_media_dedupe_bot.config import load_config
+from tg_media_dedupe_bot.tag_extraction import extract_telethon_hashtags
 
 
 @dataclass(frozen=True)
@@ -163,29 +164,7 @@ def _dedupe_tags(tags: list[str]) -> list[str]:
 
 
 def _extract_hashtags(text: str, entities: list[Any] | None) -> list[str]:
-    if not text:
-        return []
-
-    if entities:
-        tags: list[str] = []
-        for ent in entities:
-            if ent.__class__.__name__ != "MessageEntityHashtag":
-                continue
-            offset = int(getattr(ent, "offset", 0))
-            length = int(getattr(ent, "length", 0))
-            if length <= 1:
-                continue
-            raw = text[offset : offset + length]
-            if not raw.startswith("#") or len(raw) <= 1:
-                continue
-            tag = raw[1:]
-            if tag and _is_valid_tag(tag):
-                tags.append(tag)
-        if tags:
-            return _dedupe_tags(tags)
-
-    tags = [m.group(1) for m in _HASHTAG_RE.finditer(text) if _is_valid_tag(m.group(1))]
-    return _dedupe_tags(tags)
+    return extract_telethon_hashtags(text, entities)
 
 
 async def run_tag_scan(

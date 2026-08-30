@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block page_kicker %}Docs{% endblock %}
+{% block page_title %}内容治理帮助中心{% endblock %}
+{% block page_subtitle %}这里汇总“广告扫描与净化中心”的产品说明、运营手册和发布说明。{% endblock %}
+
+{% block content %}
+<div class="surface" style="padding:16px; display:grid; gap:12px;">
+  <div style="display:flex; flex-wrap:wrap; gap:8px;">
+    <a class="btn" href="/content_ops_docs?doc=design">产品与交互设计说明</a>
+    <a class="btn" href="/content_ops_docs?doc=ops">运营使用手册</a>
+    <a class="btn" href="/content_ops_docs?doc=release">发布说明</a>
+    <a class="btn" href="/content_ops">返回内容治理页</a>
+  </div>
+
+  <div class="mono">当前文档：{{ doc_label }}</div>
+
+  <pre style="white-space:pre-wrap; border:1px solid var(--border-soft); border-radius:12px; background:rgba(255,255,255,0.9); padding:12px; max-height:70vh; overflow:auto;">{{ doc_content }}</pre>
+</div>
+{% endblock %}

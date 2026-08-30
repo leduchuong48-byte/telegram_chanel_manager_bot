@@ -56,6 +56,33 @@ def _clean(value: str | None) -> str:
     return value.strip()
 
 
+def _coerce_int(value: str | None, *, default: int, minimum: int | None = None) -> int:
+    raw = _clean(value)
+    if not raw:
+        result = default
+    else:
+        try:
+            result = int(raw)
+        except ValueError:
+            result = default
+    if minimum is not None:
+        result = max(minimum, result)
+    return result
+
+
+def _parse_csv(value: str | None) -> list[str]:
+    raw = _clean(value)
+    if not raw:
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in raw.split(","):
+        token = item.strip()
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        result.append(token)
+    return result
 
 
 def _resolve_db_path(config: dict[str, Any]) -> Path:
@@ -224,6 +251,9 @@ async def update_llm_settings(
     model: Annotated[str | None, Form()] = None,
     use_responses_mode: Annotated[str | None, Form()] = None,
     enabled: Annotated[str | None, Form()] = None,
+    timeout_ms: Annotated[str | None, Form()] = None,
+    retry_count: Annotated[str | None, Form()] = None,
+    fallback_provider_keys: Annotated[str | None, Form()] = None,
     _: Annotated[str, Depends(get_current_user)] = None,
 ) -> MessageResponse:
     config_manager = _get_config_manager()
@@ -273,5 +303,18 @@ async def update_llm_settings(
             base_url=next_base_url,
             model=next_model,
         )
+
+    new_config = copy.deepcopy(config)
+    ai_runtime = new_config.get("ai_runtime")
+    if not isinstance(ai_runtime, dict):
+        ai_runtime = {}
+        new_config["ai_runtime"] = ai_runtime
+    ai_runtime["timeout_ms"] = _coerce_int(timeout_ms, default=10000, minimum=1000)
+    ai_runtime["retry_count"] = _coerce_int(retry_count, default=1, minimum=0)
+    ai_runtime["fallback_provider_keys"] = _parse_csv(fallback_provider_keys)
+
+    ok, message = config_manager.update_config(new_config)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
 
     return MessageResponse(success=True, message="LLM 设置已更新")

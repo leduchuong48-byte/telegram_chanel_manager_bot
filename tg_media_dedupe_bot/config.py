@@ -8,10 +8,12 @@ from pathlib import Path
 import json
 
 from app.core.runtime_settings import load_runtime_settings
+from tg_media_dedupe_bot.paths import app_root, resolve_app_path
 
 
 _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 logger = logging.getLogger(__name__)
+_SENSITIVE_ENV_TOKENS = ("TOKEN", "SECRET", "PASSWORD", "HASH")
 
 
 def _strip_quotes(value: str) -> str:
@@ -49,7 +51,19 @@ def _load_dotenv_from_file(path: Path) -> None:
 
 
 def _load_dotenv() -> None:
-    for directory in (Path.cwd(), *Path.cwd().parents):
+    if os.getenv("APP_ROOT", "").strip():
+        search_roots = [app_root()]
+    else:
+        search_roots = [Path.cwd(), *Path.cwd().parents]
+    seen: set[Path] = set()
+    for directory in search_roots:
+        try:
+            directory = directory.resolve()
+        except OSError:
+            continue
+        if directory in seen:
+            continue
+        seen.add(directory)
         candidate = directory / ".env"
         if candidate.is_file():
             _load_dotenv_from_file(candidate)
@@ -71,6 +85,14 @@ def _parse_chat_ids(value: str | None) -> frozenset[int] | None:
     if not raw:
         return None
     return frozenset(int(part) for part in raw)
+
+
+def _format_conflict_value(env_name: str, value: object) -> object:
+    if value is None:
+        return None
+    if any(token in env_name for token in _SENSITIVE_ENV_TOKENS):
+        return "[redacted]"
+    return value
 
 
 @dataclass
@@ -95,7 +117,7 @@ class Config:
 def load_config() -> Config:
     _load_dotenv()
 
-    config_json_path = Path('config.json')
+    config_json_path = resolve_app_path("config.json")
     raw_config: dict[str, object] = {}
     if config_json_path.exists():
         try:
@@ -126,24 +148,25 @@ def load_config() -> Config:
                 logger.warning(
                     'deprecated_env_override_ignored env=%s env_value=%s config_value=%s',
                     env_name,
-                    env_value,
-                    config_value,
+                    _format_conflict_value(env_name, env_value),
+                    _format_conflict_value(env_name, config_value),
                 )
 
-    db_path = Path(os.getenv("DB_PATH", "./data/bot.db")).expanduser()
+    db_path = resolve_app_path(os.getenv("DB_PATH", "./data/bot.db"))
     if isinstance(raw_config, dict):
         database = raw_config.get('database', {})
         if isinstance(database, dict) and str(database.get('path') or '').strip():
-            db_path = Path(str(database.get('path')).strip()).expanduser()
+            db_path = resolve_app_path(str(database.get('path')).strip())
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     keep_policy = os.getenv("KEEP_POLICY", "oldest").strip().lower()
     if keep_policy not in {"oldest"}:
         raise RuntimeError(f"不支持的 KEEP_POLICY: {keep_policy}")
 
-    tg_session = os.getenv("TG_SESSION", "").strip() or settings.web_tg_session or "./sessions/user"
+    tg_session_path = resolve_app_path(os.getenv("TG_SESSION", "").strip() or settings.web_tg_session or "./sessions/user")
+    tg_session = str(tg_session_path)
     try:
-        session_path = Path(tg_session).expanduser()
+        session_path = tg_session_path
         session_path.parent.mkdir(parents=True, exist_ok=True)
     except OSError:
         pass

@@ -25,7 +25,7 @@ AI作图
       </div>
       <div id="sessionInfo" class="mt-2 text-muted"></div>
       <div class="row g-2 mt-2">
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label" for="actionFilter">Action Filter</label>
           <select id="actionFilter" class="form-select">
             <option value="">All</option>
@@ -36,7 +36,7 @@ AI作图
             <option value="keep">keep</option>
           </select>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label" for="decisionFilter">Decision Filter</label>
           <select id="decisionFilter" class="form-select">
             <option value="">All</option>
@@ -46,9 +46,21 @@ AI作图
             <option value="edit_accept">edit_accept</option>
           </select>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-2">
           <label class="form-label" for="confidenceFilter">Min Confidence</label>
           <input id="confidenceFilter" class="form-control" type="number" min="0" max="1" step="0.05" value="0" />
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="categoryL1Filter">Category L1</label>
+          <input id="categoryL1Filter" class="form-control" type="text" placeholder="演员/角色特征" />
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="categoryL2Filter">Category L2</label>
+          <input id="categoryL2Filter" class="form-control" type="text" placeholder="熟女相关" />
+        </div>
+        <div class="col-md-2">
+          <label class="form-label" for="ruleSourceFilter">Rule Source</label>
+          <input id="ruleSourceFilter" class="form-control" type="text" placeholder="existing_rule" />
         </div>
       </div>
     </div>
@@ -94,6 +106,9 @@ AI作图
   const actionFilter = document.getElementById('actionFilter');
   const decisionFilter = document.getElementById('decisionFilter');
   const confidenceFilter = document.getElementById('confidenceFilter');
+  const categoryL1Filter = document.getElementById('categoryL1Filter');
+  const categoryL2Filter = document.getElementById('categoryL2Filter');
+  const ruleSourceFilter = document.getElementById('ruleSourceFilter');
 
   let currentSessionId = '';
   let currentItems = [];
@@ -107,9 +122,15 @@ AI作图
     const action = (actionFilter.value || '').trim();
     const decision = (decisionFilter.value || '').trim();
     const minConf = Number(confidenceFilter.value || 0);
+    const c1 = categoryL1Filter ? (categoryL1Filter.value || '').trim() : '';
+    const c2 = categoryL2Filter ? (categoryL2Filter.value || '').trim() : '';
+    const rs = ruleSourceFilter ? (ruleSourceFilter.value || '').trim() : '';
     if (action && item.suggested_action !== action) return false;
     if (decision && (item.decision || 'pending') !== decision) return false;
     if (Number(item.confidence || 0) < minConf) return false;
+    if (c1 && String(item.category_l1 || '').indexOf(c1) === -1) return false;
+    if (c2 && String(item.category_l2 || '').indexOf(c2) === -1) return false;
+    if (rs && String(item.rule_source || '').indexOf(rs) === -1) return false;
     return true;
   }
 
@@ -311,6 +332,9 @@ AI作图
   actionFilter.addEventListener('change', () => renderItems(currentItems));
   decisionFilter.addEventListener('change', () => renderItems(currentItems));
   confidenceFilter.addEventListener('input', () => renderItems(currentItems));
+  if (categoryL1Filter) categoryL1Filter.addEventListener('input', () => renderItems(currentItems));
+  if (categoryL2Filter) categoryL2Filter.addEventListener('input', () => renderItems(currentItems));
+  if (ruleSourceFilter) ruleSourceFilter.addEventListener('input', () => renderItems(currentItems));
 
   selectAll.addEventListener('change', () => {
     const checks = tableBody.querySelectorAll('input[data-item-id]');

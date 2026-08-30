@@ -36,3 +36,19 @@ def resolve_responses_mode(
     if global_norm is None:
         raise ValueError('unsupported_mode:')
     return global_norm
+
+def resolve_provider_chain(*, primary_provider_key: str, configured_fallbacks: list[str]) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def _push(value: str | None) -> None:
+        key = str(value or "").strip()
+        if not key or key in seen:
+            return
+        seen.add(key)
+        ordered.append(key)
+
+    _push(primary_provider_key)
+    for item in configured_fallbacks:
+        _push(item)
+    return ordered

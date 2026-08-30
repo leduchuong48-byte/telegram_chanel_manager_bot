@@ -1,97 +1,55 @@
-<h1 align="center">Telegram Channel Manager Bot</h1>
+# Telegram 群组/频道媒体管理器
 
-<p align="center">
-<a href="https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/releases"><img alt="Release" src="https://img.shields.io/github/v/release/leduchuong48-byte/telegram_chanel_manager_bot?display_name=tag"></a>
-<a href="https://hub.docker.com/r/leduchuong/telegram_mediachanel_manager_bot"><img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/leduchuong/telegram_mediachanel_manager_bot?logo=docker"></a>
-<a href="https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/leduchuong48-byte/telegram_chanel_manager_bot"></a>
-<a href="https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/leduchuong48-byte/telegram_chanel_manager_bot"></a>
-</p>
+## Introduction
 
-<h3 align="center">
-  <a href="README.md">中文</a><span> · </span>
-  <a href="https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/issues">Report Bug</a>
-  <span> · </span>
-  <a href="https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/discussions">Discussions</a>
-</h3>
+A Telegram group and channel operations tool for media deduplication, tag maintenance, and content governance with a Bot runtime and FastAPI web console.
 
-## Overview
+## Problem and target users
 
-Telegram Channel Manager Bot is a self-hosted Telegram operations backend for cleanup workflows, task tracking, tag maintenance, controller management, and diagnostics.
+It reduces repetitive work in media deduplication, historical content organization, and risk-content review by centralizing task state, failures, and human confirmation.
 
-## Interface
+For individual operators and small teams maintaining Telegram group or channel content who need previewable, controlled cleanup workflows.
 
-### Web Admin (4.0)
+## Features and limitations
 
-> Version 4.0 ships a major UI redesign.
+- Detects duplicate media in new Bot updates with idempotent records and a pending-delete queue.
+- Uses a Telethon user session for historical scans, tag extraction, tag rebuilding, and tag catalog maintenance.
+- Provides task, failure, log, session, visibility-diagnostic, and runtime-configuration views in the web console.
+- Provides content-governance workflows for tag review, ad-risk analysis, blacklists, and human confirmation.
+- Supports forwarding rules, text blocking, media filters, Bot operators, and AI provider settings.
+- Stores task, deduplication, and runtime state in SQLite with health checks.
 
-![Dashboard](https://raw.githubusercontent.com/leduchuong48-byte/telegram_chanel_manager_bot/main/docs/ui/dashboard-v4.png)
-![Task Center](https://raw.githubusercontent.com/leduchuong48-byte/telegram_chanel_manager_bot/main/docs/ui/task-center-v4.png)
-![Cleaner](https://raw.githubusercontent.com/leduchuong48-byte/telegram_chanel_manager_bot/main/docs/ui/cleaner-v4.png)
-![Tags](https://raw.githubusercontent.com/leduchuong48-byte/telegram_chanel_manager_bot/main/docs/ui/tags-v4.png)
-![Controllers](https://raw.githubusercontent.com/leduchuong48-byte/telegram_chanel_manager_bot/main/docs/ui/controllers-v4.png)
+- The Telegram Bot API generally handles received updates; historical scans require a configured Telethon user session.
+- Deletion requires the relevant administrator permission, so dry-run and human review are recommended first.
+- The public repository excludes real tokens, API credentials, sessions, databases, backups, and production media; example configuration is initialization-only.
+- Screenshots use an empty database and demo login state and do not represent a connected Telegram account or production data.
 
-## Support Matrix
+## Deployment
 
-| Category | Support |
-|---|---|
-| Runtime | Web Admin + Telegram controller workflow |
-| Core Use Cases | Cleanup, task diagnostics, tag maintenance, permission boundaries |
-| Deployment | Docker / Docker Compose / NAS / Portainer |
-
-## Installation
-
-```bash
-git clone https://github.com/leduchuong48-byte/telegram_chanel_manager_bot.git
-cd telegram_chanel_manager_bot
-cp .env.example .env
-cp config.json.example config.json
-```
-
-## Docker
-
-```bash
-docker pull leduchuong/telegram_mediachanel_manager_bot:latest
-```
-
-```bash
-docker run -d --name telegram_mediachanel_manager_bot --restart unless-stopped -p 1009:8000 --env-file .env -v $(pwd)/config.json:/app/config.json -v $(pwd)/data:/app/data -v $(pwd)/sessions:/app/sessions -v $(pwd)/backups:/app/backups leduchuong/telegram_mediachanel_manager_bot:latest
-```
-
-```yaml
-services:
-  telegram_mediachanel_manager_bot:
-    image: leduchuong/telegram_mediachanel_manager_bot:latest
-    container_name: telegram_mediachanel_manager_bot
-    restart: unless-stopped
-    ports:
-      - "1009:8000"
-    env_file:
-      - .env
-    volumes:
-      - ./config.json:/app/config.json
-      - ./data:/app/data
-      - ./sessions:/app/sessions
-      - ./backups:/app/backups
-```
+- For Docker Compose, copy .env.example to .env, prepare config.json, and run docker compose up -d.
+- The published image is leduchuong/telegram_mediachanel_manager_bot:4.1.
+- The web console listens on container port 8000; the compose example maps it to host port 1009 and can be adjusted.
+- You can also build locally with docker build -t telegram_mediachanel_manager_bot:4.1 .
 
 ## Configuration
 
-- Runtime config: `config.json`
-- Environment: `.env`
-- Configure Web user + execution session before production operations.
+- Copy config.json.example to config.json and set web_admin.secret_key; change-me is only a placeholder.
+- Configure bot_token, api_id, api_hash, target_chat_ids, and web_tg_session in the bot section of config.json.
+- Start with bot.dry_run=true and bot.delete_duplicates=false, then enable writes only after permission and visibility checks.
+- .env is reserved for container logging, compatibility paths, and the SQLite path; config.json is authoritative for business settings.
 
-## Upgrade Notes (4.0 vs 3.5)
+## Usage
 
-- Console information architecture redesigned.
-- New task result center (`outcome -> cause -> evidence`).
-- Unified workflows across Cleaner / Tags / Controllers.
-- Upgrade from 3.5 to 4.0 is recommended.
+After startup, open http://localhost:1009/login and sign in with a Web user from config.json. Confirm the Telethon session in the session center, create preview tasks from the task or content-governance views, and apply destructive changes only after review.
 
-## Support & Contribution
+## Screenshots
 
-- Issues: https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/issues
-- Discussions: https://github.com/leduchuong48-byte/telegram_chanel_manager_bot/discussions
+![Web console overview](screenshots/dashboard-desktop.png)
 
-## Disclaimer
+![Content governance workbench](screenshots/content-ops-desktop.png)
 
-By using this project, you agree to [DISCLAIMER.md](DISCLAIMER.md).
+![Mobile login page](screenshots/login-mobile.png)
+
+## Security
+
+The staging tree excludes environment files, real configuration, Telegram sessions, databases, backups, caches, and runtime logs, and passed the built-in scan, Gitleaks, and TruffleHog. Inject real credentials only in the deployment environment, use a strong web secret, restrict console exposure, and validate with dry-run before enabling deletion.
