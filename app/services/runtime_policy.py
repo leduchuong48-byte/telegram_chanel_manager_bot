@@ -52,3 +52,4 @@ def resolve_provider_chain(*, primary_provider_key: str, configured_fallbacks: l
     for item in configured_fallbacks:
         _push(item)
     return ordered
+
