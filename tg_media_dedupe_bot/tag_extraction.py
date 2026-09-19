@@ -4,7 +4,9 @@ import re
 from typing import Any
 
 HASHTAG_RE = re.compile(r"(?<!\w)#(\w{1,64})")
-PURE_NUMERIC_TAG_RE = re.compile(r"^\d+$")
+# Reject pure-numeric tags ("123") and mixed alphanumeric tags ("ab12", "4k", "a1").
+# Kept in sync with telethon_tags._INVALID_TAG_RE.
+INVALID_TAG_RE = re.compile(r"^(?:\d+|(?=.*\d)(?=.*[A-Za-z])[0-9A-Za-z]+)$")
 
 
 def normalize_tag_text(tag: str) -> str:
@@ -15,7 +17,7 @@ def is_valid_tag(tag: str) -> bool:
     normalized = normalize_tag_text(tag)
     if not normalized:
         return False
-    return PURE_NUMERIC_TAG_RE.match(normalized) is None
+    return INVALID_TAG_RE.match(normalized) is None
 
 
 def dedupe_tags(tags: list[str]) -> list[str]:
